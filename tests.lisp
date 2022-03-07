@@ -83,10 +83,10 @@
   (let ((pool (tpool:make-thread-pool)))
     (is eq nil (tpool::peek-backlog pool))
     #+sbcl(sb-concurrency:enqueue :work1 (tpool::thread-pool-backlog pool))
-    #-sbcl(utils:sfifo-enqueue :work1 (tpool::thread-pool-backlog pool))
+    #-sbcl(cl-fast-queues:enqueue :work1 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
     #+sbcl(sb-concurrency:enqueue :work2 (tpool::thread-pool-backlog pool))
-    #-sbcl(utils:sfifo-enqueue :work2 (tpool::thread-pool-backlog pool))
+    #-sbcl(cl-fast-queues:enqueue :work2 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
     #+sbcl(sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
     #-sbcl(utils:sfifo-dequeue (tpool::thread-pool-backlog pool))
@@ -253,7 +253,8 @@
     (false (tpool:peek-backlog pool))
 
     (dolist (work work-list) ; reset the status to ":ready" and add work
-      (setf (car (tpool::work-item-status work)) :ready)
+      #+sbcl(setf (car (tpool::work-item-status work)) :ready)
+      #-sbcl(setf (svref (tpool::work-item-status work) 0) :ready)
       (tpool:add-work work pool))
 
     (sleep 0.0001) ; all done
@@ -263,7 +264,8 @@
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))
 
     (dolist (work work-list) ; reset work-list
-      (setf (car (tpool::work-item-status work)) :ready)
+      #+sbcl(setf (car (tpool::work-item-status work)) :ready)
+      #-sbcl(setf (svref (tpool::work-item-status work) 0) :ready)
       (setf (tpool::work-item-result work) nil))
 
     (with-slots ((backlog tpool::backlog)) pool ; add to backlog without notify

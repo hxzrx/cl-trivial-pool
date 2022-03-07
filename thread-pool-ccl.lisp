@@ -46,10 +46,10 @@
    (result   :initarg :result :initform nil             :type list      :accessor work-item-result)
    ;; :created :running :aborted :ready :finished :cancelled :rejected
    ;;(status   :initarg :status :initform (list :created) :type list    :accessor work-item-status) ; use list to enable atomic
-   (status   :initarg :status :initform (make-array 1 :initial-element :created) :type list    :accessor work-item-status)
+   (status   :initarg :status :initform (make-array 1 :initial-element :created) :type simple-array :accessor work-item-status)
    (lock     :initarg :lock   :initform (bt:make-lock)               :accessor work-item-lock)
    (cvar     :initarg :cvar   :initform (bt:make-condition-variable) :accessor work-item-cvar)
-   (desc     :initarg :desc   :initform ""              :type string    :accessor work-item-desc)))
+   (desc     :initarg :desc   :initform nil :accessor work-item-desc)))
 
 (defun inspect-work (work &optional (simple-mode t))
   "Return a detail description of the work item."
@@ -65,7 +65,7 @@
   (print-unreadable-object (work stream :type t)
     (format stream (inspect-work work))))
 
-(defun make-work-item (&key function (pool *default-thread-pool*) (status :created) (name "A work item") (desc ""))
+(defun make-work-item (&key function (pool *default-thread-pool*) (status :created) (name "A work item") desc)
   (make-instance 'work-item
                  :fun function
                  :pool pool
@@ -88,9 +88,9 @@ or nil if the work has not finished."
               (values result t)
               (values nil nil))))
       (with-slots (status result) work
-          (if (eq (svref status 0) :finished)
-              (values result t)
-              (values nil nil)))))
+        (if (eq (svref status 0) :finished)
+            (values result t)
+            (values nil nil)))))
 
 (defmethod get-status ((work work-item))
   "Return the status of an work-item instance."
@@ -116,8 +116,8 @@ or nil if the work has not finished."
                             (ccl::atomic-decf (thread-pool-idle-num pool))
                             (ccl::atomic-incf (thread-pool-working-num pool))
                             (atomic-update (svref (work-item-status wk) 0) #'(lambda (x)
-                                                                                  (declare (ignore x))
-                                                                                  :running))
+                                                                               (declare (ignore x))
+                                                                               :running))
                             (return)))
                         (when (> (+ (thread-pool-working-num pool)
                                     (thread-pool-idle-num pool))
@@ -131,8 +131,8 @@ or nil if the work has not finished."
                           (bt:with-lock-held (lock)
                             (loop until (peek-backlog pool)
                                   do (or (bt:condition-wait cvar lock
-                                                             :timeout (/ idle-time-remaining
-                                                                         internal-time-units-per-second))
+                                                            :timeout (/ idle-time-remaining
+                                                                        internal-time-units-per-second))
                                          (return)))))))))
             (unwind-protect-unwind-only
                 (catch 'terminate-work
@@ -177,12 +177,12 @@ thread pool's initial-bindings."
     (with-slots (backlog max-worker-num working-num idle-num) pool
       (when (thread-pool-shutdown-p pool)
         (error "Attempted to add work item to a shut down thread pool ~S" pool))
-      (sfifo-enqueue work backlog)
+      (cl-fast-queues:enqueue work backlog)
       (when (and (<= (thread-pool-idle-num pool) 0)
                  (< (+ working-num idle-num) max-worker-num))
         (bt:make-thread (lambda () (thread-pool-main pool))
-                         :name (concatenate 'string "Worker of " (thread-pool-name pool))
-                         :initial-bindings (thread-pool-initial-bindings pool))
+                        :name (concatenate 'string "Worker of " (thread-pool-name pool))
+                        :initial-bindings (thread-pool-initial-bindings pool))
         (ccl::atomic-incf (thread-pool-working-num pool)))
       (bt:condition-notify (thread-pool-cvar pool)))
     work))
@@ -212,7 +212,7 @@ And it will be set to the pool provided")
     (when (thread-pool-shutdown-p pool)
       (error "Attempted to add work item to a shut down thread pool ~S" pool))
     (setf (svref (work-item-status work) 0) :ready)
-    (sfifo-enqueue work backlog)
+    (cl-fast-queues:enqueue work backlog)
     (when (and (= (thread-pool-idle-num pool) 0)
                (< (+ working-num idle-num) max-worker-num))
       (format t "should create thread~%")
@@ -233,9 +233,9 @@ And it will be set to the pool provided")
 Returns true if the item was successfully cancelled,
 false if the item had finished or is currently running on a worker thread."
   (atomic-update (svref (work-item-status work-item) 0)
-                        #'(lambda (x)
-                            (declare (ignore x))
-                            :cancelled)))
+                 #'(lambda (x)
+                     (declare (ignore x))
+                     :cancelled)))
 
 #+:ignore
 (defun flush-pool (pool)
@@ -277,8 +277,8 @@ This function set the slot %shutdown nil so that the pool will be used then.
 Return t if the pool has been shutdown, and return nil if the pool was active"
   (if (thread-pool-shutdown-p pool)
       (progn (atomic-update (thread-pool-shutdown-p pool)
-                                   #'(lambda (x)
-                                       (declare (ignore x))
-                                       nil))
+                            #'(lambda (x)
+                                (declare (ignore x))
+                                nil))
              t)
       nil))
