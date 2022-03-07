@@ -5,15 +5,15 @@
                         (:predicate thread-pool-p))
   (name              (concatenate 'string "THREAD-POOL-" (string (gensym))) :type string)
   (initial-bindings  nil            :type list)
-  (lock              (bt2:make-lock :name "THREAD-POOL-LOCK"))
-  (cvar              (bt2:make-condition-variable :name "THREAD-POOL-CVAR"))
+  (lock              (bt:make-lock "THREAD-POOL-LOCK"))
+  (cvar              (bt:make-condition-variable :name "THREAD-POOL-CVAR"))
   (backlog           (sb-concurrency:make-queue  :name "THREAD POOL PENDING WORK-ITEM QUEUE"))
   (max-worker-num    *default-worker-num* :type fixnum)       ; num of worker threads
   (thread-table      (make-hash-table :weakness :value :synchronized t) :type hash-table) ; may have some dead threads due to gc
   (working-num       0              :type (unsigned-byte 64)) ; num of current busy working threads
-  (idle-num          0              :type (unsigned-byte 64)) ; num of current idle threads
-  (total-threads-num 0              :type (unsigned-byte 64)) ; num of current total threads
-  (blocked-num       0              :type (unsigned-byte 64)) ; num of blocked threads
+  (idle-num          0              :type (unsigned-byte 64)) ; num of current idle threads, total = working + idle
+  ;;(total-threads-num 0              :type (unsigned-byte 64)) ; num of current total threads
+  ;;(blocked-num       0              :type (unsigned-byte 64)) ; num of blocked threads
   (shutdown-p        nil)
   (keepalive-time    *default-keepalive-time* :type (unsigned-byte 64)))
 
@@ -21,15 +21,15 @@
 
 (defun inspect-pool (pool &optional (inspect-work-p nil))
   "Return a detail description of the thread pool."
-  (format nil "name: ~d, backlog of work: ~d, max workers: ~d, total threads: ~d, working threads: ~d, idle threads: ~d, blocked threads: ~d, shutdownp: ~d~@[, pending works: ~%~{~d~^~&~}~]"
+  (format nil "name: ~d, backlog of work: ~d, max workers: ~d, current working threads: ~d, idle threads: ~d, shutdownp: ~d, all threads: ~d, ~@[, pending works: ~%~{~d~^~&~}~]"
           (thread-pool-name pool)
           (sb-concurrency:queue-count (thread-pool-backlog pool))
           (thread-pool-max-worker-num pool)
-          (thread-pool-total-threads-num pool)
+          ;;(thread-pool-total-threads-num pool)
           (thread-pool-working-num pool)
           (thread-pool-idle-num pool)
-          (thread-pool-blocked-num pool)
           (thread-pool-shutdown-p pool)
+          (alexandria:hash-table-values (thread-pool-thread-table pool))
           (when inspect-work-p
             (mapcar #'(lambda(work) (inspect-work work t))
                     (sb-concurrency:list-queue-contents (thread-pool-backlog pool))))))
@@ -42,6 +42,7 @@
   "Return the top pending works of the pool. Return NIL if no pending work in the queue."
   (peek-queue (thread-pool-backlog pool)))
 
+#+:ignore
 (defun thread-pool-n-concurrent-threads (thread-pool) ; effectiveThreads = totalThreads - blockedThread
   "Return the number of threads in the pool are not blocked."
   (assert (>= (thread-pool-total-threads-num thread-pool) (thread-pool-blocked-num thread-pool)))
@@ -56,8 +57,8 @@
   (thread-pool *default-thread-pool* :type thread-pool)
   (result nil :type list)
   (status :created :type symbol) ; :created :running :aborted :ready :finished :cancelled :rejected
-  (lock (bt2:make-lock))       ; may be useful in the future
-  (cvar (bt2:make-condition-variable))
+  (lock (bt:make-lock))       ; may be useful in the future
+  (cvar (bt:make-condition-variable))
   (desc))
 
 (defun inspect-work (work &optional (simple-mode t))
@@ -89,16 +90,16 @@ or nil if the work has not finished."
   (work-item-status work))
 
 (defun thread-pool-main (thread-pool)
-  (let* ((self (bt2:current-thread)))
+  (let* ((self (bt:current-thread)))
     (loop (let ((work nil))
-            (with-slots (backlog max-worker-num keepalive-time lock cvar idle-num) thread-pool
+            (with-slots (backlog max-worker-num keepalive-time lock cvar) thread-pool
               (sb-ext:atomic-decf (thread-pool-working-num thread-pool))
               (sb-ext:atomic-incf (thread-pool-idle-num thread-pool))
               ;;(setf (sb-thread:thread-name self) "Thread pool idle worker")
               (let ((start-idle-time (get-internal-run-time)))
                 (flet ((exit-while-idle ()
                          (sb-ext:atomic-decf (thread-pool-idle-num thread-pool))
-                         (sb-ext:atomic-decf (thread-pool-total-threads-num thread-pool))
+                         ;;(sb-ext:atomic-decf (thread-pool-total-threads-num thread-pool))
                          (return-from thread-pool-main)))
                   (loop (when (thread-pool-shutdown-p thread-pool)
                           (exit-while-idle))
@@ -113,16 +114,18 @@ or nil if the work has not finished."
                                                                             (declare (ignore x))
                                                                             :running))
                             (return)))
-                        (when (> (thread-pool-n-concurrent-threads thread-pool) max-worker-num)
+                        (when (> (+ (thread-pool-working-num thread-pool)
+                                    (thread-pool-idle-num thread-pool))
+                                 max-worker-num)
                           (exit-while-idle))
                         (let* ((end-idle-time (+ start-idle-time
                                                  (* keepalive-time internal-time-units-per-second)))
                                (idle-time-remaining (- end-idle-time (get-internal-run-time))))
                           (when (minusp idle-time-remaining)
                             (exit-while-idle))
-                          (bt2:with-lock-held (lock)
+                          (bt:with-lock-held (lock)
                             (loop until (peek-backlog thread-pool)
-                                  do (or (bt2:condition-wait cvar lock
+                                  do (or (bt:condition-wait cvar lock
                                                              :timeout (/ idle-time-remaining
                                                                          internal-time-units-per-second))
                                          (return)))))))))
@@ -132,15 +135,17 @@ or nil if the work has not finished."
                     (setf (work-item-result work) result
                           (work-item-status work) :finished)))
               (sb-ext:atomic-decf (thread-pool-working-num thread-pool))
-              (sb-ext:atomic-decf (thread-pool-total-threads-num thread-pool))
+              ;;(sb-ext:atomic-decf (thread-pool-total-threads-num thread-pool))
               (setf (work-item-status work) :aborted)
-              (bt2:destroy-thread self))))))
+              (bt:destroy-thread self))))))
 
 (defun add-thread (&optional (pool *default-thread-pool*))
   "Add a thread to a thread pool."
-  (bt2:make-thread (lambda () (thread-pool-main pool))
-                   :name (concatenate 'string "Worker of " (thread-pool-name pool))
-                   :initial-bindings (thread-pool-initial-bindings pool)))
+  (prog1 (sb-ext:atomic-incf (thread-pool-working-num pool))
+    (bt:make-thread (lambda () (thread-pool-main pool))
+                     :name (concatenate 'string "Worker of " (thread-pool-name pool))
+                     :initial-bindings (thread-pool-initial-bindings pool))))
+
 
 
 (defun add-task (function thread-pool &key (name "") priority bindings desc)
@@ -165,18 +170,18 @@ thread pool's initial-bindings."
                :status :ready
                :thread-pool thread-pool
                :desc desc)))
-    (with-slots (backlog max-worker-num) thread-pool
+    (with-slots (backlog max-worker-num working-num idle-num) thread-pool
       (when (thread-pool-shutdown-p thread-pool)
         (error "Attempted to add work item to a shut down thread pool ~S" thread-pool))
       (sb-concurrency:enqueue work backlog)
       (when (and (<= (thread-pool-idle-num thread-pool) 0)
-                 (< (thread-pool-n-concurrent-threads thread-pool)
+                 (< (+ working-num idle-num)
                     max-worker-num))
         (bt2:make-thread (lambda () (thread-pool-main thread-pool))
                          :name (concatenate 'string "Worker of " (thread-pool-name thread-pool))
                          :initial-bindings (thread-pool-initial-bindings thread-pool))
         (sb-ext:atomic-incf (thread-pool-working-num thread-pool))
-        (sb-ext:atomic-incf (thread-pool-total-threads-num thread-pool)))
+        #+:ignore(sb-ext:atomic-incf (thread-pool-total-threads-num thread-pool)))
       (bt2:condition-notify (thread-pool-cvar thread-pool)))
     work))
 
@@ -201,19 +206,19 @@ The biggest different between `thread-pool-add' and `add-work' is that `add-work
     (warn "The thread-pool of the work-item is not as same as the thread-pool provide.
 And it will be set to the pool provided")
     (setf (work-item-thread-pool work) pool)) ; this will not likly compete by threads
-  (with-slots (backlog max-worker-num) pool
+  (with-slots (backlog max-worker-num working-num idle-num) pool
     (when (thread-pool-shutdown-p pool)
       (error "Attempted to add work item to a shut down thread pool ~S" pool))
     (setf (work-item-status work) :ready)
     (sb-concurrency:enqueue work backlog)
-    (when (and (<= (thread-pool-idle-num pool) 0)
-               (< (thread-pool-n-concurrent-threads pool)
+    (when (and (= (thread-pool-idle-num pool) 0)
+               (< (+ working-num idle-num)
                   max-worker-num))
       (bt2:make-thread (lambda () (thread-pool-main pool))
                        :name (concatenate 'string "Worker of " (thread-pool-name pool))
                        :initial-bindings (thread-pool-initial-bindings pool))
       (sb-ext:atomic-incf (thread-pool-working-num pool))
-      (sb-ext:atomic-incf (thread-pool-total-threads-num pool)))
+      #+:ignore(sb-ext:atomic-incf (thread-pool-total-threads-num pool)))
     (bt2:condition-notify (thread-pool-cvar pool)))
   work)
 
@@ -274,75 +279,3 @@ Return t if the pool has been shutdown, and return nil if the pool was active"
                                        nil))
              t)
       nil))
-
-
-;;;; thread pool blocking
-
-;;; Thread pool support for hijacking blocking functions.
-;;; When the current thread's thread-pool slot is non-nil, the blocking
-;;; functions will call THREAD-POOL-BLOCK with the thread pool, the name
-;;; of the function and supplied arguments instead of actually blocking.
-;;; The thread's thread-pool slot will be set to NIL for the duration
-;;; of the call to THREAD-POOL-BLOCK.
-
-;; Mezzano/system/sync.lisp
-(defgeneric thread-pool-block (thread-pool blocking-function &rest arguments)
-  (:documentation "Called when the current thread's thread-pool slot
-is non-NIL and the thread is about to block. The thread-pool slot
-is bound to NIL for the duration of the call."))
-
-(defmethod thread-pool-block ((thread-pool thread-pool) blocking-function &rest arguments)
-  (declare (dynamic-extent arguments))
-  (when (and (eql blocking-function 'bt2:acquire-lock)
-             (eql (first arguments) (thread-pool-lock thread-pool)))
-    ;; Don't suspend when acquiring the thread-pool lock, this causes
-    ;; recursive locking on it.
-    (return-from thread-pool-block
-      (apply blocking-function arguments)))
-  (unwind-protect
-       (progn
-         (bt2:with-lock-held ((thread-pool-lock thread-pool))
-           (incf (thread-pool-blocked-num thread-pool)))
-         (apply blocking-function arguments))
-    (bt2:with-lock-held ((thread-pool-lock thread-pool))
-      (decf (thread-pool-blocked-num thread-pool)))))
-
-;;;; Mezzano/supervisor/sync.lisp
-(defmacro thread-pool-blocking-hijack (function-name &rest arguments)
-  (let ((self (gensym "SELF"))
-        (pool (gensym "POOL")))
-    `(let* ((,self (current-thread))
-            (,pool (thread-thread-pool ,self)))
-       (when ,pool
-         (unwind-protect
-              (progn
-                (setf (thread-thread-pool ,self) nil) ; make sure it will not been call repeatly
-                (return-from ,function-name
-                  (thread-pool-block ,pool ',function-name ,@arguments)))
-           (setf (thread-thread-pool ,self) ,pool))))))
-
-(defmacro thread-pool-blocking-hijack-apply (function-name &rest arguments)
-  ;; used when all the parameters are enclosed in a list
-  (let ((self (gensym "SELF"))
-        (pool (gensym "POOL")))
-    `(let* ((,self (current-thread))
-            (,pool (thread-thread-pool ,self)))
-       (when ,pool
-         (unwind-protect
-              (progn
-                (setf (thread-thread-pool ,self) nil)
-                (return-from ,function-name
-                  (apply #'thread-pool-block ,pool ',function-name ,@arguments)))
-           (setf (thread-thread-pool ,self) ,pool))))))
-
-(defmacro inhibit-thread-pool-blocking-hijack (&body body)
-  "Run body with the thread's thread-pool unset."
-  (let ((self (gensym "SELF"))
-        (pool (gensym "POOL")))
-    `(let* ((,self (current-thread))
-            (,pool (thread-thread-pool ,self)))
-       (unwind-protect
-            (progn
-              (setf (thread-thread-pool ,self) nil)
-              ,@body)
-         (setf (thread-thread-pool ,self) ,pool)))))
