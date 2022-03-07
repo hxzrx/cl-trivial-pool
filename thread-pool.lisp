@@ -231,7 +231,7 @@ false if the item had finished or is currently running on a worker thread."
                             (declare (ignore x))
                             :cancelled)))
 
-(defun pool-flush (thread-pool)
+(defun flush-pool (thread-pool)
   "Cancel all outstanding work on THREAD-POOL.
 Returns a list of all cancelled items.
 Does not cancel work in progress."
@@ -245,7 +245,7 @@ Does not cancel work in progress."
     (prog1 (sb-concurrency:list-queue-contents backlog)
       (queue-flush backlog))))
 
-(defun pool-shutdown (thread-pool &key abort)
+(defun shutdown-pool (thread-pool &key abort)
   "Shutdown THREAD-POOL.
 This cancels all outstanding work on THREAD-POOL
 and notifies the worker threads that they should
@@ -256,14 +256,14 @@ If ABORT is true then worker threads will be terminated
 via TERMINATE-THREAD."
   (with-slots (shutdown-p backlog thread-table) thread-pool
     (setf shutdown-p t)
-    (thread-pool-flush thread-pool)
+    (flush-pool thread-pool)
     (when abort
       (dolist (thread (alexandria:hash-table-values thread-table))
         (ignore-errors (bt2:destroy-thread thread))))
     (bt2:condition-notify (thread-pool-cvar thread-pool)))
   (values))
 
-(defun pool-restart (thread-pool)
+(defun restart-pool (thread-pool)
   "Calling thread-pool-shutdown will not destroy the pool object, but set the slot %shutdown t.
 This function set the slot %shutdown nil so that the pool will be used then.
 Return t if the pool has been shutdown, and return nil if the pool was active"
