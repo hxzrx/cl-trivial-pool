@@ -21,7 +21,7 @@
   (cadr (sb-concurrency::queue-head queue)))
 
 #+:sbcl
-(defun queue-flush (queue)
+(defun flush-queue (queue)
   "Flush the queue to an empty queue."
   (declare (optimize speed))
   (loop (let* ((head (sb-concurrency::queue-head queue))

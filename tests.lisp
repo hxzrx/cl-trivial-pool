@@ -46,27 +46,27 @@
     (sb-concurrency:enqueue 2 queue)
     (is = 1 (utils:peek-queue queue))))
 
-(define-test queue-flush :parent utils
+(define-test flush-queue :parent utils
   (let ((queue (sb-concurrency:make-queue)))
     (true (sb-concurrency:queue-empty-p queue))
-    (false (utils:queue-flush queue))
+    (false (utils:flush-queue queue))
 
     (sb-concurrency:enqueue nil queue)
     (false (sb-concurrency:queue-empty-p queue))
-    (utils:queue-flush queue)
+    (utils:flush-queue queue)
     (true (sb-concurrency:queue-empty-p queue))
 
     (sb-concurrency:enqueue 1 queue)
     (false (sb-concurrency:queue-empty-p queue))
-    (true (utils:queue-flush queue))
+    (true (utils:flush-queue queue))
     (true (sb-concurrency:queue-empty-p queue))
 
     (sb-concurrency:enqueue 1 queue)
     (sb-concurrency:enqueue 2 queue)
     (sb-concurrency:enqueue 3 queue)
-    (true (utils:queue-flush queue))
+    (true (utils:flush-queue queue))
     (true (sb-concurrency:queue-empty-p queue))
-    (false (utils:queue-flush queue))))
+    (false (utils:flush-queue queue))))
 
 
 ;;; ------- thread-pool -------

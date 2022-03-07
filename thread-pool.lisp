@@ -248,7 +248,7 @@ Does not cancel work in progress."
                                                                   :cancelled)))
                                     backlog)
     (prog1 (sb-concurrency:list-queue-contents backlog)
-      (queue-flush backlog))))
+      (flush-queue backlog))))
 
 (defun shutdown-pool (pool &key abort)
   "Shutdown THREAD-POOL.

@@ -4,7 +4,7 @@
            #:*default-keepalive-time*
            #:unwind-protect-unwind-only)
   #+:sbcl(:export #:peek-queue
-                  #:queue-flush))
+                  #:flush-queue))
 
 (defpackage #:cl-trivial-pool
   (:use #:cl #:utils)
