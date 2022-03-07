@@ -24,6 +24,7 @@
 (define-test utils :parent tpool)
 (define-test pool :parent tpool)
 
+#+sbcl
 (define-test peek-queue :parent utils
   (let ((queue (sb-concurrency:make-queue)))
     (is eq nil (utils:peek-queue queue))
@@ -46,6 +47,7 @@
     (sb-concurrency:enqueue 2 queue)
     (is = 1 (utils:peek-queue queue))))
 
+#+sbcl
 (define-test flush-queue :parent utils
   (let ((queue (sb-concurrency:make-queue)))
     (true (sb-concurrency:queue-empty-p queue))
@@ -80,13 +82,17 @@
 (define-test peek-backlog :parent tpool
   (let ((pool (tpool:make-thread-pool)))
     (is eq nil (tpool::peek-backlog pool))
-    (sb-concurrency:enqueue :work1 (tpool::thread-pool-backlog pool))
+    #+sbcl(sb-concurrency:enqueue :work1 (tpool::thread-pool-backlog pool))
+    #-sbcl(utils:sfifo-enqueue :work1 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
-    (sb-concurrency:enqueue :work2 (tpool::thread-pool-backlog pool))
+    #+sbcl(sb-concurrency:enqueue :work2 (tpool::thread-pool-backlog pool))
+    #-sbcl(utils:sfifo-enqueue :work2 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
-    (sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
+    #+sbcl(sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
+    #-sbcl(utils:sfifo-dequeue (tpool::thread-pool-backlog pool))
     (is eq :work2 (tpool:peek-backlog pool))
-    (sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
+    #+sbcl(sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
+    #-sbcl(utils:sfifo-dequeue (tpool::thread-pool-backlog pool))
     (is eq nil (tpool:peek-backlog pool))))
 
 (define-test make-work-item :parent tpool
@@ -232,8 +238,10 @@
                                                 :pool pool))))
     (with-slots ((backlog tpool::backlog)) pool
       (dolist (work work-list)
-        (sb-concurrency:enqueue work backlog)))
-    (is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; no threads
+        #+sbcl(sb-concurrency:enqueue work backlog)
+        #-sbcl(cl-fast-queues:enqueue work backlog)))
+    #+sbcl(is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; no threads
+    #-sbcl(is = 10 (cl-fast-queues:queue-count (tpool::thread-pool-backlog pool)))
 
     (finish (tpool:add-thread pool)) ; add a thread
     ;; run, but will only deal with the works whose status is :ready
@@ -260,10 +268,12 @@
 
     (with-slots ((backlog tpool::backlog)) pool ; add to backlog without notify
       (dolist (work work-list)
-        (sb-concurrency:enqueue work backlog)))
-    (is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; as the thread waiting for cvar
+        #+sbcl(sb-concurrency:enqueue work backlog)
+        #-sbcl(cl-fast-queues:enqueue work backlog)))
+    #+:sbcl(is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; as the thread waiting for cvar
+    #-:sbcl(is = 10 (cl-fast-queues:queue-count (tpool::thread-pool-backlog pool)))
 
-    (bt2:condition-notify (tpool::thread-pool-cvar pool)) ; notify cvar
+    (bt:condition-notify (tpool::thread-pool-cvar pool)) ; notify cvar
     (sleep 0.0001) ; all done
     (is equal (make-list 10 :initial-element 6)
         (mapcar #'(lambda (work) (car (tpool:get-result work))) work-list))
@@ -319,6 +329,7 @@
       (is eql 6 (car (tpool:get-result work)))
       (is eql :finished (tpool:get-status work)))))
 
+#+sbcl
 (define-test flush-pool :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
@@ -357,6 +368,7 @@
       (is eql nil (tpool:get-result work nil))
       (is eql :cancelled (tpool:get-status work)))))
 
+#+:sbcl
 (define-test shutdown/restart-pool :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
