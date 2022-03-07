@@ -236,14 +236,12 @@
     (is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; no threads
 
     (finish (tpool:add-thread pool)) ; add a thread
-    (format t "~d~%" (tpool:inspect-pool pool t))
     ;; run, but will only deal with the works whose status is :ready
     (sleep 0.0001)
     (is equal (make-list 10)
         (mapcar #'(lambda (work) (tpool:get-result work)) work-list))
     (is equal (make-list 10 :initial-element :created)
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))
-    (format t "~d~%" (tpool:inspect-pool pool t))
     (false (tpool:peek-backlog pool))
 
     (dolist (work work-list) ; reset the status to ":ready" and add work
@@ -376,3 +374,10 @@
     (finish (tpool:add-work work pool))
     (sleep 0.00001)
     (is equal (list 6) (tpool:get-result work))))
+
+(define-test add-thread :parent tpool
+  (let* ((pool (tpool:make-thread-pool)))
+    (finish (dotimes (i 100)
+              (tpool:add-thread pool)))
+    (is = (tpool::thread-pool-max-worker-num pool)
+        (+ (tpool::thread-pool-working-num pool) (tpool::thread-pool-idle-num pool)))))
