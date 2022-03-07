@@ -36,3 +36,28 @@
                     (setf (car tail) sb-concurrency::+dummy+
                           (sb-concurrency::queue-head queue) (sb-concurrency::queue-tail queue))
                     (return t)))))))
+
+#+ccl
+(defmacro compare-and-swap (place old-value new-value) ; 返回值表示cas是否成功
+    "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
+Two values are considered to match if they are EQ.
+return T if swap success, otherwise return NIL."
+  `(ccl::conditional-store ,place ,old-value ,new-value))
+
+#+ccl
+(defmacro atomic-update (place function &rest args)
+  "Atomic swap value in `place' with `function' called and return new value."
+  (alexandria:with-gensyms (func old-value new-value)
+    `(loop :with ,func = ,function
+           :for ,old-value = ,place
+           :for ,new-value = (funcall ,func ,old-value ,@args)
+           :until (compare-and-swap ,place ,old-value ,new-value)
+           :finally (return ,new-value))))
+
+#-sbcl
+(defun sfifo-dequeue (queue)
+  "dequeue safe-fast-fifo"
+  (alexandria:when-let (val (cl-fast-queues:dequeue queue))
+    (if (eq val cl-fast-queues:*underflow-flag*)
+        nil
+        val)))
