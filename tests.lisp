@@ -77,7 +77,7 @@
   (finish (tpool:inspect-pool (tpool:make-thread-pool :name "" :max-worker-num 10 :keepalive-time 0)))
   (finish (tpool:inspect-pool (tpool:make-thread-pool :name "test pool" :max-worker-num 10 :keepalive-time 1))))
 
-(define-test pool2-peek-backlog :parent tpool
+(define-test peek-backlog :parent tpool
   (let ((pool (tpool:make-thread-pool)))
     (is eq nil (tpool::peek-backlog pool))
     (sb-concurrency:enqueue :work1 (tpool::thread-pool-backlog pool))
@@ -89,7 +89,7 @@
     (sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
     (is eq nil (tpool:peek-backlog pool))))
 
-(define-test pool2-make-work-item :parent tpool
+(define-test make-work-item :parent tpool
   (let ((pool (tpool:make-thread-pool)))
     (finish (tpool:inspect-work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                                         :thread-pool pool)))
@@ -105,7 +105,7 @@
                                                         :name "name"
                                                         :desc "desc")))))
 
-(define-test pool2-add-work :parent tpool
+(define-test add-work :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work0 (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))) ; to test in default pool
          (work1 (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))) ; to test in local pool, will be warned
@@ -156,7 +156,7 @@
     (is eq nil (tpool:peek-backlog pool))
     (is eq nil (tpool:peek-backlog tpool:*default-thread-pool*))))
 
-(define-test pool2-add-works-1 :parent tpool
+(define-test add-works-1 :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work-list (list (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
                           (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
@@ -183,7 +183,7 @@
     (is equal (make-list 10 :initial-element :finished)
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))))
 
-(define-test pool2-add-works-2 :parent tpool
+(define-test add-works-2 :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work-list (list (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
                           (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
@@ -210,7 +210,7 @@
     (is equal (make-list 10 :initial-element :finished)
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))))
 
-(define-test pool2-pool-main-1 :parent tpool
+(define-test pool-main-1 :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work-list (list (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
                           (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
@@ -273,14 +273,14 @@
     (false (tpool:peek-backlog pool))
     ))
 
-(define-test pool2-pool-main-2 :parent tpool
+(define-test pool-main-2 :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function #'(lambda () (values 1 2 3)))))
     (tpool:add-work work pool :xxxx)
     (sleep 0.0001)
     (is equal (list 1 2 3) (tpool:get-result work))))
 
-(define-test pool2-cancel-work :parent tpool
+(define-test cancel-work :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                       :thread-pool pool))
@@ -320,7 +320,7 @@
       (is eql 6 (car (tpool:get-result work)))
       (is eql :finished (tpool:get-status work)))))
 
-(define-test pool2-pool-flush :parent tpool
+(define-test flush-pool :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                       :thread-pool pool))
@@ -348,7 +348,7 @@
 
     (finish (tpool:add-work work pool))
     (finish (tpool:add-works work-list pool))
-    (finish (tpool:pool-flush pool))
+    (finish (tpool:flush-pool pool))
     (false (tpool:peek-backlog pool))
 
     (dotimes (i 5)
@@ -360,3 +360,18 @@
     (dolist (work work-list)
       (is eql nil (tpool:get-result work))
       (is eql :cancelled (tpool:get-status work)))))
+
+(define-test shutdown/restart-pool :parent tpool
+  (let* ((pool (tpool:make-thread-pool))
+         (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+                                     :thread-pool pool)))
+    (is eq nil (tpool:restart-pool pool))
+    (finish (tpool:shutdown-pool pool))
+    (fail (tpool:add-work work pool))
+    (is eq t (tpool:restart-pool pool))
+    (tpool:add-thread pool)
+    (finish (tpool:shutdown-pool pool))
+    (is eq t (tpool:restart-pool pool))
+    (finish (tpool:add-work work pool))
+    (sleep 0.00001)
+    (is equal (list 6) (tpool:get-result work))))
