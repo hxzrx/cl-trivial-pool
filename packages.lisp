@@ -26,7 +26,7 @@
            #:get-result
            #:get-status
            #:cancel-work
-           #:pool-flush
-           #:pool-shutdown
-           #:pool-restart
+           #:flush-pool
+           #:shutdown-pool
+           #:restart-pool
            #:terminate-work))
