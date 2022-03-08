@@ -36,7 +36,7 @@
     (format stream (inspect-pool pool))))
 
 (defun peek-backlog (pool)
-  "Return the top pending works of the pool. Return NIL if no pending work in the queue."
+  "Return the top pending work-item of the pool. Return NIL if no pending works in the queue."
   (peek-queue (thread-pool-backlog pool)))
 
 (defclass work-item ()
@@ -154,7 +154,7 @@ or nil if the work has not finished."
 (defun add-task (function pool &key (name "") priority bindings desc)
   "Add a work item to the thread-pool.
 Functions are called concurrently and in FIFO order.
-A work item is returned, which can be passed to THREAD-POOL-CANCEL-ITEM
+A work item is returned, which can be passed to CANCEL-WORK
 to attempt cancel the work.
 BINDINGS is a list which specify special bindings
 that should be active when FUNCTION is called. These override the
@@ -201,7 +201,7 @@ Returns a list of the work items added."
 
 (defmethod add-work ((work work-item) &optional (pool *default-thread-pool*) priority)
   "Enqueue a work-item to a thread-pool.
-The biggest different between `thread-pool-add' and `add-work' is that `add-work' has no bindings specified"
+The biggest different between `add-task' and `add-work' is that `add-work' has no bindings specified"
   (declare (ignore priority))
   (unless (eq (work-item-pool work) pool)
     (warn "The thread-pool of the work-item is not as same as the thread-pool provide.
@@ -270,9 +270,9 @@ via TERMINATE-THREAD."
   (values))
 
 (defun restart-pool (pool)
-  "Calling thread-pool-shutdown will not destroy the pool object, but set the slot %shutdown t.
-This function set the slot %shutdown nil so that the pool will be used then.
-Return t if the pool has been shutdown, and return nil if the pool was active"
+  "Calling shutdown-pool will not destroy the pool object, but set the slot shutdown-p t.
+This function set the slot shutdown-p nil so that the pool will be used then.
+Return t if the pool has been shutdown, and return nil if the pool was active."
   (if (thread-pool-shutdown-p pool)
       (progn (sb-ext:atomic-update (thread-pool-shutdown-p pool)
                                    #'(lambda (x)
