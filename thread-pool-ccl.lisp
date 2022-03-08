@@ -138,9 +138,11 @@ or nil if the work has not finished."
                 (catch 'terminate-work
                   (let ((result (multiple-value-list (funcall (work-item-fun work)))))
                     (setf (work-item-result work) result
-                          (svref (work-item-status work) 0) :finished)))
+                          (svref (work-item-status work) 0) :finished)
+                    (bt:condition-notify (work-item-cvar work))))
               (ccl::atomic-decf (thread-pool-working-num pool))
               (setf (svref (work-item-status work) 0) :aborted)
+              (bt:condition-notify (work-item-cvar work))
               (bt:destroy-thread self))))))
 
 (defun add-thread (pool)

@@ -80,7 +80,8 @@ or nil if the work has not finished."
   (if waitp
       (with-slots (lock cvar) work
         (bt:with-lock-held (lock) work
-          (loop while (eq (car (work-item-status work)) :ready)
+          (loop while (or (eq (car (work-item-status work)) :ready)
+                          (eq (car (work-item-status work)) :running))
                 do (bt:condition-wait cvar lock :timeout timeout)))
         (with-slots (status result) work
           (if (eq (car status) :finished)
@@ -137,9 +138,11 @@ or nil if the work has not finished."
                 (catch 'terminate-work
                   (let ((result (multiple-value-list (funcall (work-item-fun work)))))
                     (setf (work-item-result work) result
-                          (car (work-item-status work)) :finished)))
+                          (car (work-item-status work)) :finished)
+                    (bt:condition-notify (work-item-cvar work))))
               (sb-ext:atomic-decf (thread-pool-working-num pool))
               (setf (car (work-item-status work)) :aborted)
+              (bt:condition-notify (work-item-cvar work))
               (bt:destroy-thread self))))))
 
 (defun add-thread (pool)
