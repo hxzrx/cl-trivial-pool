@@ -77,20 +77,27 @@
 The second value denotes if the work has finished.
 The first value is the function's returned value list of this work,
 or nil if the work has not finished."
-  (if waitp
-      (with-slots (lock cvar) work
-        (bt:with-lock-held (lock) work
-          (loop while (or (eq (car (work-item-status work)) :ready)
-                          (eq (car (work-item-status work)) :running))
-                do (bt:condition-wait cvar lock :timeout timeout)))
-        (with-slots (status result) work
-          (if (eq (car status) :finished)
-              (values result t)
-              (values nil nil))))
-      (with-slots (status result) work
-          (if (eq (car status) :finished)
-              (values result t)
-              (values nil nil)))))
+  (case (car (work-item-status work)) ; :created :ready :running :aborted :finished :cancelled :rejected
+    (:finished (values (work-item-result work) t))
+    ((:ready :running)
+     (if waitp
+         (with-slots (lock cvar) work
+           (bt:with-lock-held (lock) work
+             (loop while (or (eq (car (work-item-status work)) :ready)
+                             (eq (car (work-item-status work)) :running))
+                   do (bt:condition-wait cvar lock :timeout timeout)))
+           (with-slots (status result) work
+             (if (eq (car status) :finished)
+                 (values result t)
+                 (values nil nil))))
+         (with-slots (status result) work
+           (if (eq (car status) :finished)
+               (values result t)
+               (values nil nil)))))
+    (:created (warn "The work has not been added to a thread pool.")
+     (values nil nil))
+    (t (warn "The result of this work is abnormal, the status is ~s" (get-status work))
+     (values nil nil))))
 
 (defmethod get-status ((work work-item))
   "Return the status of an work-item instance."
