@@ -242,10 +242,11 @@ Returns a list of all cancelled items.
 Does not cancel work in progress."
   (with-slots (backlog) pool
     (sb-concurrency::try-walk-queue #'(lambda (work)
-                                        (sb-ext:atomic-update (car (work-item-status work))
-                                                              #'(lambda (x)
-                                                                  (declare (ignore x))
-                                                                  :cancelled)))
+                                        (when (eq (car (work-item-status work)) :ready)
+                                          (sb-ext:atomic-update (car (work-item-status work))
+                                                                #'(lambda (x)
+                                                                    (declare (ignore x))
+                                                                    :cancelled))))
                                     backlog)
     (prog1 (sb-concurrency:list-queue-contents backlog)
       (flush-queue backlog))))
