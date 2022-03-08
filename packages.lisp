@@ -2,7 +2,21 @@
   (:use #:cl)
   (:export #:*default-worker-num*
            #:*default-keepalive-time*
-           #:unwind-protect-unwind-only)
+           #:unwind-protect-unwind-only
+           #:make-hash
+           #:make-queue
+           #:peek-queue
+           #:enqueue
+           #:dequeue
+           #:queue-count
+           #:queue-to-list
+           #:flush-queue
+           #:make-atomic
+           #:atomic-place
+           #:atomic-incf
+           #:atomic-decf
+           #:atomic-update
+           )
   #+:sbcl(:export #:peek-queue
                   #:flush-queue)
   #+:ccl(:export #:atomic-update

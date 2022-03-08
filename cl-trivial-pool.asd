@@ -11,8 +11,9 @@
   :in-order-to ((test-op (test-op "cl-trivial-pool/tests")))
   :components ((:file "packages")
                (:file "utils")
-               #+sbcl(:file "thread-pool-sbcl")
-               #+ccl(:file "thread-pool-ccl")))
+               (:file "thread-pool")
+               #+:ignore(:file "thread-pool-sbcl")
+               #+:ignore(:file "thread-pool-ccl")))
 
 
 (defsystem "cl-trivial-pool/tests"

@@ -16,14 +16,49 @@
          (when ,abnormal-return
            ,@cleanup-forms)))))
 
-#+:sbcl
-(defun peek-queue (queue)
-  (cadr (sb-concurrency::queue-head queue)))
 
-#+:sbcl
+;;; hash
+(defun make-hash ()
+  #+sbcl(make-hash-table :weakness :value :synchronized t)
+  #+ccl(make-hash-table :weak :value))
+
+
+;;; fifo queue apis for safe accessing
+
+(defun make-queue (&optional (unbound t))
+  "Return an unbound"
+  (declare (ignore unbound))
+  #+sbcl(sb-concurrency:make-queue)
+  #-sbcl(cl-fast-queues:make-safe-fifo))
+
+(defun peek-queue (queue)
+  "Return the first item to be dequeued without dequeueing it"
+  #+sbcl(cadr (sb-concurrency::queue-head queue))
+  #-sbcl(cl-fast-queues:queue-peek queue))
+
+(defun enqueue (item queue)
+  #+sbcl(sb-concurrency:enqueue item queue)
+  #-sbcl(cl-fast-queues:enqueue item queue))
+
+(defun dequeue (queue)
+  #+sbcl(sb-concurrency:dequeue queue)
+  #-sbcl(alexandria:when-let (val (cl-fast-queues:dequeue queue))
+          (if (eq val cl-fast-queues:*underflow-flag*)
+              nil
+              val)))
+
+(defun queue-count (queue)
+  #+sbcl(sb-concurrency:queue-count queue)
+  #-sbcl(cl-fast-queues:queue-count queue))
+
+(defun queue-to-list (queue)
+  #+sbcl(sb-concurrency:list-queue-contents queue)
+  #-sbcl(cl-fast-queues:queue-to-list queue))
+
 (defun flush-queue (queue)
   "Flush the queue to an empty queue."
   (declare (optimize speed))
+  #+sbcl
   (loop (let* ((head (sb-concurrency::queue-head queue))
                (tail (sb-concurrency::queue-tail queue))
                (next (cdr head)))
@@ -35,24 +70,9 @@
                                                               nil nil)))
                     (setf (car tail) sb-concurrency::+dummy+
                           (sb-concurrency::queue-head queue) (sb-concurrency::queue-tail queue))
-                    (return t)))))))
+                    (return t))))))
+  #-sbcl(cl-fast-queues:queue-flush queue))
 
-#+ccl
-(defmacro compare-and-swap (place old-value new-value) ; 返回值表示cas是否成功
-    "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
-Two values are considered to match if they are EQ.
-return T if swap success, otherwise return NIL."
-  `(ccl::conditional-store ,place ,old-value ,new-value))
-
-#+ccl
-(defmacro atomic-update (place function &rest args)
-  "Atomic swap value in `place' with `function' called and return new value."
-  (alexandria:with-gensyms (func old-value new-value)
-    `(loop :with ,func = ,function
-           :for ,old-value = ,place
-           :for ,new-value = (funcall ,func ,old-value ,@args)
-           :until (compare-and-swap ,place ,old-value ,new-value)
-           :finally (return ,new-value))))
 
 #-sbcl
 (defun sfifo-dequeue (queue)
@@ -61,3 +81,57 @@ return T if swap success, otherwise return NIL."
     (if (eq val cl-fast-queues:*underflow-flag*)
         nil
         val)))
+
+
+;;; atomic operations
+
+(defun make-atomic (init-value)
+  "Return a structure that can be cas'ed"
+  #+ccl
+  (make-array 1 :initial-element init-value) ; 注意ccl的place不能是(car list), 可以用(svref #(0) 0)
+  #-ccl
+  (cons init-value nil))
+
+(defmacro atomic-place (atomic-structure)
+  "Return value of atomic-fixnum in macro."
+  #+ccl
+  `(svref ,atomic-structure 0)
+  #-ccl
+  `(car ,atomic-structure))
+
+(defmacro atomic-incf (place &optional (diff 1))
+  "Atomic incf fixnum in `place' with `diff' and return OLD value."
+  #+sbcl
+  `(sb-ext:atomic-incf ,place ,diff)
+  #+ccl
+  `(let ((old ,place))
+     (ccl::atomic-incf-decf ,place ,diff)
+     old))
+
+(defmacro atomic-decf (place &optional (diff 1))
+  "Atomic decf fixnum in `place' with `diff' and return OLD value."
+  #+sbcl
+  `(sb-ext:atomic-decf ,place ,diff)
+  #+ccl
+  `(let ((old ,place))
+     (ccl::atomic-incf-decf ,place (- ,diff))
+     old))
+
+#+ccl
+(defmacro compare-and-swap (place old-value new-value) ; 返回值表示cas是否成功
+    "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
+Two values are considered to match if they are EQ.
+return T if swap success, otherwise return NIL."
+  `(ccl::conditional-store ,place ,old-value ,new-value))
+
+(defmacro atomic-update (place function &rest args)
+  "Atomic swap value in `place' with `function' called and return new value."
+  #+sbcl
+  `(sb-ext:atomic-update ,place ,function ,@args)
+  #-sbcl
+  (alexandria:with-gensyms (func old-value new-value)
+    `(loop :with ,func = ,function
+           :for ,old-value = ,place
+           :for ,new-value = (funcall ,func ,old-value ,@args)
+           :until (compare-and-swap ,place ,old-value ,new-value)
+           :finally (return ,new-value))))
