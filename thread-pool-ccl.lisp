@@ -237,20 +237,21 @@ false if the item had finished or is currently running on a worker thread."
                      (declare (ignore x))
                      :cancelled)))
 
-#+:ignore
+
 (defun flush-pool (pool)
   "Cancel all outstanding work on THREAD-POOL.
 Returns a list of all cancelled items.
 Does not cancel work in progress."
   (with-slots (backlog) pool
-    (sb-concurrency::try-walk-queue #'(lambda (work)
-                                        (sb-ext:atomic-update (svref (work-item-status work) 0)
-                                                              #'(lambda (x)
-                                                                  (declare (ignore x))
-                                                                  :cancelled)))
-                                    backlog)
-    (prog1 (sb-concurrency:list-queue-contents backlog)
-      (flush-queue backlog))))
+    (let ((lst (cl-fast-queues:queue-to-list backlog)))
+      (cl-fast-queues:queue-flush backlog)
+      (dolist (work lst)
+        (when (eq (svref (work-item-status work) 0) :ready)
+          (atomic-update (svref (work-item-status work) 0)
+                         #'(lambda (x)
+                             (declare (ignore x))
+                             :cancelled))))
+      lst)))
 
 #+:ignore
 (defun shutdown-pool (pool &key abort)
