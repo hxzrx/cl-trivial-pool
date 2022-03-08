@@ -73,28 +73,37 @@
                  :name name
                  :desc desc))
 
+(defmethod get-status ((work work-item))
+  "Return the status of an work-item instance."
+  (svref (work-item-status work) 0))
+
 (defmethod get-result ((work work-item) &optional (waitp t) (timeout nil))
   "Get the result of this `work', returns two values:
 The second value denotes if the work has finished.
 The first value is the function's returned value list of this work,
 or nil if the work has not finished."
-  (if waitp
-      (with-slots (lock cvar) work
-        (bt:with-lock-held (lock) work
-          (loop while (eq (svref (work-item-status work) 0) :ready)
-                do (bt:condition-wait cvar lock :timeout timeout)))
-        (with-slots (status result) work
-          (if (eq (svref status 0) :finished)
-              (values result t)
-              (values nil nil))))
-      (with-slots (status result) work
-        (if (eq (svref status 0) :finished)
-            (values result t)
-            (values nil nil)))))
-
-(defmethod get-status ((work work-item))
-  "Return the status of an work-item instance."
-  (svref (work-item-status work) 0))
+  (case (get-status work) ; :created :ready :running :aborted :finished :cancelled :rejected
+    (:finished (values (work-item-result work) t))
+    ((:ready :running)
+     (if waitp
+         (with-slots (lock cvar) work
+           (bt:with-lock-held (lock) work
+             (loop while (or (eq (svref (work-item-status work) 0) :ready)
+                             (eq (svref (work-item-status work) 0) :running))
+                   do (or (null (bt:condition-wait cvar lock :timeout timeout)) ; ccl's condition-wait will always return T
+                          (return))))
+           (with-slots (status result) work
+             (if (eq (svref status 0) :finished)
+                 (values result t)
+                 (values nil nil))))
+         (with-slots (status result) work
+           (if (eq (svref status 0) :finished)
+               (values result t)
+               (values nil nil)))))
+    (:created (warn "The work has not been added to a thread pool.")
+     (values nil nil))
+    (t (warn "The result of this work is abnormal, the status is ~s" (get-status work))
+     (values nil nil))))
 
 (defun thread-pool-main (pool)
   (let* ((self (bt:current-thread)))
@@ -130,9 +139,9 @@ or nil if the work has not finished."
                             (exit-while-idle))
                           (bt:with-lock-held (lock)
                             (loop until (peek-backlog pool)
-                                  do (or (bt:condition-wait cvar lock
+                                  do (or (null (bt:condition-wait cvar lock ; ccl's condition-wait will always return T
                                                             :timeout (/ idle-time-remaining
-                                                                        internal-time-units-per-second))
+                                                                        internal-time-units-per-second)))
                                          (return)))))))))
             (unwind-protect-unwind-only
                 (catch 'terminate-work
