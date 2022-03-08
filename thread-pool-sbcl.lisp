@@ -72,12 +72,16 @@
                  :name name
                  :desc desc))
 
+(defmethod get-status ((work work-item))
+  "Return the status of an work-item instance."
+  (car (work-item-status work)))
+
 (defmethod get-result ((work work-item) &optional (waitp t) (timeout nil))
   "Get the result of this `work', returns two values:
 The second value denotes if the work has finished.
 The first value is the function's returned value list of this work,
 or nil if the work has not finished."
-  (case (car (work-item-status work)) ; :created :ready :running :aborted :finished :cancelled :rejected
+  (case (get-status work) ; :created :ready :running :aborted :finished :cancelled :rejected
     (:finished (values (work-item-result work) t))
     ((:ready :running)
      (if waitp
@@ -99,10 +103,6 @@ or nil if the work has not finished."
      (values nil nil))
     (t (warn "The result of this work is abnormal, the status is ~s" (get-status work))
      (values nil nil))))
-
-(defmethod get-status ((work work-item))
-  "Return the status of an work-item instance."
-  (car (work-item-status work)))
 
 (defun thread-pool-main (pool)
   (let* ((self (bt:current-thread)))
