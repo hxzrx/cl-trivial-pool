@@ -392,3 +392,51 @@
               (tpool:add-thread pool)))
     (is = (tpool::thread-pool-max-worker-num pool)
         (+ (tpool::thread-pool-working-num pool) (tpool::thread-pool-idle-num pool)))))
+
+(define-test get-result :parent tpool
+  ;; :created :ready :running :aborted :finished :cancelled :rejected
+  (let* ((pool (tpool:make-thread-pool))
+         (pool2 (tpool:make-thread-pool))
+         (fun-long #'(lambda () (sleep 5) (+ 1 2 3))) ; be a long run task
+         (fun-inst #'(lambda () (+ 1 2 3))) ; an instant task
+         (work (tpool:make-work-item :function fun-long :pool pool :name "work")) ; long run work
+         (work2 (tpool:make-work-item :function fun-inst :pool pool2 :name "work2"))) ; instant work
+    ;; :created
+    (is-values (tpool:get-result work) (eql nil) (eql nil))
+    (is-values (tpool:get-result work nil) (eql nil) (eql nil))
+    ;; :aborted
+    (setf (car (tpool::work-item-status work)) :aborted)
+    (is-values (tpool:get-result work) (eql nil) (eql nil))
+    (is-values (tpool:get-result work nil) (eql nil) (eql nil))
+    ;; cancelled
+    (setf (car (tpool::work-item-status work)) :cancelled)
+    (is-values (tpool:get-result work) (eql nil) (eql nil))
+    (is-values (tpool:get-result work nil) (eql nil) (eql nil))
+    ;; :rejected
+    (setf (car (tpool::work-item-status work)) :rejected)
+    (is-values (tpool:get-result work) (eql nil) (eql nil))
+    (is-values (tpool:get-result work nil) (eql nil) (eql nil))
+
+    (tpool:add-work work pool)
+    (format t "~&The work will last for 5 seconds~%")
+    (dotimes (i 5)
+      (format t "~&......~%")
+      (is eq :running (tpool:get-status work))
+      (is-values (tpool:get-result work nil) (eql nil) (eql nil))
+      (sleep 1.1))
+    ;; finished
+    (is eq :finished (tpool:get-status work))
+    (is-values (tpool:get-result work nil) (equal (list 6)) (eql t))
+    (is-values (tpool:get-result work t) (equal (list 6)) (eql t))
+    (format t "~&This test should run instantly.~%")
+    (is-values (tpool:get-result work t 1000) (equal (list 6)) (eql t))
+    ;; ready
+    (dotimes (i (tpool::thread-pool-max-worker-num pool2)) ; let the pool busy for 5 seconds
+      (tpool:add-task fun-long pool2))
+    (tpool:add-work work2 pool2)
+    (is eq :ready (tpool:get-status work2))
+    (is-values (tpool:get-result work2 nil) (eql nil) (eql nil))
+    (is-values (tpool:get-result work2 nil nil) (eql nil) (eql nil))
+    (is-values (tpool:get-result work2 nil 10) (eql nil) (eql nil))
+    (is-values (tpool:get-result work2 t 1) (eql nil) (eql nil))
+    (is-values (tpool:get-result work2 t) (equal (list 6)) (eql t))))
