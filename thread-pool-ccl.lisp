@@ -253,7 +253,6 @@ Does not cancel work in progress."
                              :cancelled))))
       lst)))
 
-#+:ignore
 (defun shutdown-pool (pool &key abort)
   "Shutdown THREAD-POOL.
 This cancels all outstanding work on THREAD-POOL

@@ -371,7 +371,6 @@
       (is eql nil (tpool:get-result work nil))
       (is eql :cancelled (tpool:get-status work)))))
 
-#+:sbcl
 (define-test shutdown/restart-pool :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
