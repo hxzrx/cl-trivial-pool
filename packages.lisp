@@ -13,6 +13,7 @@
   (:use #:cl #:utils)
   (:nicknames #:tpool)
   (:export #:*default-keepalive-time*
+           #:*default-worker-num*
            #:*default-thread-pool*
            #:thread-pool
            #:work-item
