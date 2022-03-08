@@ -405,22 +405,27 @@
     (is-values (tpool:get-result work) (eql nil) (eql nil))
     (is-values (tpool:get-result work nil) (eql nil) (eql nil))
     ;; :aborted
-    (setf (car (tpool::work-item-status work)) :aborted)
+    #+sbcl(setf (car (tpool::work-item-status work)) :aborted)
+    #+ccl(setf (svref (tpool::work-item-status work) 0) :aborted)
     (is-values (tpool:get-result work) (eql nil) (eql nil))
     (is-values (tpool:get-result work nil) (eql nil) (eql nil))
     ;; cancelled
-    (setf (car (tpool::work-item-status work)) :cancelled)
+    #+sbcl(setf (car (tpool::work-item-status work)) :cancelled)
+    #+ccl(setf (svref (tpool::work-item-status work) 0) :cancelled)
     (is-values (tpool:get-result work) (eql nil) (eql nil))
     (is-values (tpool:get-result work nil) (eql nil) (eql nil))
     ;; :rejected
-    (setf (car (tpool::work-item-status work)) :rejected)
+    #+sbcl(setf (car (tpool::work-item-status work)) :rejected)
+    #+ccl(setf (svref (tpool::work-item-status work) 0) :rejected)
     (is-values (tpool:get-result work) (eql nil) (eql nil))
     (is-values (tpool:get-result work nil) (eql nil) (eql nil))
 
     (tpool:add-work work pool)
     (format t "~&The work will last for 5 seconds~%")
+    (sleep 0.00001) ; the next test would fail in ccl without this sleep
     (dotimes (i 5)
       (format t "~&......~%")
+      (format t "work: ~d~%" work)
       (is eq :running (tpool:get-status work))
       (is-values (tpool:get-result work nil) (eql nil) (eql nil))
       (sleep 1.1))
