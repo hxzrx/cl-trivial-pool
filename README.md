@@ -1,4 +1,4 @@
-A common lisp thread pool implemented with atomic operations instead of locks in the worker threads' main loop. This pool supports sbcl and ccl currently.
+A common lisp thread pool implemented with atomic operations instead of locks in the worker threads' main loop. This pool supports sbcl and ccl currently. This is the successor of cl-mzpool <https://github.com/hxzrx/cl-mzpool>.
 
 ### thread-pool
 Struct, the definition of the thread pool.
@@ -68,7 +68,7 @@ function, return a detail description of the work item.
 
 parameters: (work &optional (simple-mode t))
 
-simple-mode: if it's NIL, the name of the thread pool it bound to will be showed, default to T. 
+simple-mode: if it's NIL, the name of the thread pool it bound to will be showed, default to T.
 
 ### peek-backlog
 
