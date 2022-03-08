@@ -438,5 +438,7 @@
     (is-values (tpool:get-result work2 nil) (eql nil) (eql nil))
     (is-values (tpool:get-result work2 nil nil) (eql nil) (eql nil))
     (is-values (tpool:get-result work2 nil 10) (eql nil) (eql nil))
-    (is-values (tpool:get-result work2 t 1) (eql nil) (eql nil))
+    (format t "~&This test shoule wait for 1 second.~%")
+    (is-values (tpool:get-result work2 t 1) (eql nil) (eql nil)) ; test timeout
+    (format t "~&This test shoule wait for 4 second.~%")
     (is-values (tpool:get-result work2 t) (equal (list 6)) (eql t))))

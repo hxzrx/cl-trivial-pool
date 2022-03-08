@@ -85,7 +85,8 @@ or nil if the work has not finished."
            (bt:with-lock-held (lock) work
              (loop while (or (eq (car (work-item-status work)) :ready)
                              (eq (car (work-item-status work)) :running))
-                   do (bt:condition-wait cvar lock :timeout timeout)))
+                   do (or (bt:condition-wait cvar lock :timeout timeout)
+                          (return))))
            (with-slots (status result) work
              (if (eq (car status) :finished)
                  (values result t)
