@@ -331,7 +331,7 @@
       (is eql 6 (car (tpool:get-result work)))
       (is eql :finished (tpool:get-status work)))))
 
-#+sbcl
+
 (define-test flush-pool :parent tpool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
@@ -358,7 +358,8 @@
                               pool)))
     (finish (tpool:add-work work pool))
     (finish (tpool:add-works work-list pool))
-    (finish (tpool:flush-pool pool))
+    ;;(finish (tpool:flush-pool pool))
+    (finish (format t "~d~%" (tpool:flush-pool pool)))
     (false (tpool:peek-backlog pool))
     (dotimes (i 5)
       (sleep 1)
