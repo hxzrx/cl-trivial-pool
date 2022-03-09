@@ -90,7 +90,8 @@ or nil if the work has not finished."
            (bt:with-lock-held (lock) work
              (loop while (or (eq (get-status work) :ready)
                              (eq (get-status work) :running))
-                   do (or (bt:condition-wait cvar lock :timeout timeout)
+                   do (or #+sbcl(bt:condition-wait cvar lock :timeout timeout)
+                          #+ccl(utils::condition-wait cvar lock :timeout timeout)
                           (return))))
            (with-slots (status result) work
              (if (eq (atomic-place status) :finished)
@@ -139,9 +140,12 @@ or nil if the work has not finished."
                             (exit-while-idle))
                           (bt:with-lock-held (lock)
                             (loop until (peek-backlog pool)
-                                  do (or (bt:condition-wait cvar lock
-                                                             :timeout (/ idle-time-remaining
-                                                                         internal-time-units-per-second))
+                                  do (or #+sbcl(bt:condition-wait cvar lock
+                                                                  :timeout (/ idle-time-remaining
+                                                                              internal-time-units-per-second))
+                                         #+ccl(utils::condition-wait cvar lock
+                                                                     :timeout (/ idle-time-remaining
+                                                                                 internal-time-units-per-second))
                                          (return)))))))))
             (unwind-protect-unwind-only
                 (catch 'terminate-work
@@ -192,8 +196,8 @@ thread pool's initial-bindings."
       (when (and (<= (thread-pool-idle-num pool) 0)
                  (< (+ working-num idle-num) max-worker-num))
         (bt:make-thread (lambda () (thread-pool-main pool))
-                         :name (concatenate 'string "Worker of " (thread-pool-name pool))
-                         :initial-bindings (thread-pool-initial-bindings pool))
+                        :name (concatenate 'string "Worker of " (thread-pool-name pool))
+                        :initial-bindings (thread-pool-initial-bindings pool))
         (atomic-incf (thread-pool-working-num pool)))
       (bt:condition-notify (thread-pool-cvar pool)))
     work))
@@ -287,8 +291,8 @@ This function set the slot shutdown-p nil so that the pool will be used then.
 Return t if the pool has been shutdown, and return nil if the pool was active."
   (if (thread-pool-shutdown-p pool)
       (progn (atomic-update (thread-pool-shutdown-p pool)
-                                   #'(lambda (x)
-                                       (declare (ignore x))
-                                       nil))
+                            #'(lambda (x)
+                                (declare (ignore x))
+                                nil))
              t)
       nil))
