@@ -10,18 +10,14 @@
            #:dequeue
            #:queue-count
            #:queue-to-list
+           #:queue-empty-p
            #:flush-queue
            #:make-atomic
            #:atomic-place
            #:atomic-incf
            #:atomic-decf
            #:atomic-update
-           )
-  #+:sbcl(:export #:peek-queue
-                  #:flush-queue)
-  #+:ccl(:export #:atomic-update
-                 #:sfifo-dequeue
-                 ))
+           ))
 
 (defpackage #:cl-trivial-pool
   (:use #:cl #:utils)
