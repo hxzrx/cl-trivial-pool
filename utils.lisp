@@ -56,7 +56,7 @@
   #-sbcl(cl-fast-queues:queue-to-list queue))
 
 (defun flush-queue (queue)
-  "Flush the queue to an empty queue."
+  "Flush the queue to an empty queue. The returned value should be neglected."
   (declare (optimize speed))
   #+sbcl
   (loop (let* ((head (sb-concurrency::queue-head queue))
