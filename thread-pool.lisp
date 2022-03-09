@@ -45,7 +45,7 @@
 (defclass work-item ()
   ((name     :initarg :name   :initform (string (gensym "WORK-ITEM-"))  :type string    :accessor work-item-name)
    (fun      :initarg :fun                              :type function  :accessor work-item-fun)
-   (pool     :initarg :pool   :initform *default-thread-pool* :type thread-pool :accessor work-item-pool)
+   (pool     :initarg :pool   :initform nil :type thread-pool :accessor work-item-pool)
    (result   :initarg :result :initform nil             :type list      :accessor work-item-result)
    ;; :created :running :aborted :ready :finished :cancelled :rejected
    ;;(status   :initarg :status :initform (list :created) :type list    :accessor work-item-status) ; use list to enable atomic
@@ -68,9 +68,18 @@
   (print-unreadable-object (work stream :type t)
     (format stream (inspect-work work))))
 
-(defun make-work-item (&key function (pool *default-thread-pool*) (status :created) (name (string (gensym "WORK-ITEM-"))) desc)
+(defun make-work-item (&key function
+                         (pool *default-thread-pool*)
+                         (status :created)
+                         (name (string (gensym "WORK-ITEM-")))
+                         bindings desc)
   (make-instance 'work-item
-                 :fun function
+                 :fun (if bindings
+                          (let ((vars (mapcar #'first bindings))
+                                (vals (mapcar #'second bindings)))
+                            (lambda () (progv vars vals
+                                         (funcall function))))
+                          function)
                  :pool pool
                  :status (make-atomic status)
                  :name name
@@ -221,12 +230,9 @@ Returns a list of the work items added."
                           :bindings bindings)))
 
 (defmethod add-work ((work work-item) &optional (pool *default-thread-pool*) priority)
-  "Enqueue a work-item to a thread-pool.
-The biggest different between `add-task' and `add-work' is that `add-work' has no bindings specified"
+  "Enqueue a work-item to a thread-pool."
   (declare (ignore priority))
   (unless (eq (work-item-pool work) pool)
-    (warn "The thread-pool of the work-item is not as same as the thread-pool provide.
-And it will be set to the pool provided")
     (setf (work-item-pool work) pool)) ; this will not likly compete by threads
   (with-slots (backlog max-worker-num working-num idle-num) pool
     (when (thread-pool-shutdown-p pool)
