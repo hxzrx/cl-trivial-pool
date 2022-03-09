@@ -24,51 +24,52 @@
 (define-test utils :parent tpool)
 (define-test pool :parent tpool)
 
-#+sbcl
+
 (define-test peek-queue :parent utils
-  (let ((queue (sb-concurrency:make-queue)))
+  (let ((queue (utils:make-queue)))
     (is eq nil (utils:peek-queue queue))
     (is eq nil (utils:peek-queue queue))
 
-    (sb-concurrency:enqueue nil queue)
+    (utils:enqueue nil queue)
     (is eq nil (utils:peek-queue queue))
 
-    (sb-concurrency:dequeue queue)
+    (utils:dequeue queue)
     (is eq nil (utils:peek-queue queue))
 
-    (sb-concurrency:enqueue t queue)
+    (utils:enqueue t queue)
     (is eq t (utils:peek-queue queue))
 
-    (sb-concurrency:dequeue queue)
+    (utils:dequeue queue)
     (is eq nil (utils:peek-queue queue))
 
-    (sb-concurrency:enqueue 1 queue)
+    (utils:enqueue 1 queue)
     (is = 1 (utils:peek-queue queue))
-    (sb-concurrency:enqueue 2 queue)
+    (utils:enqueue 2 queue)
     (is = 1 (utils:peek-queue queue))))
 
-#+sbcl
+
 (define-test flush-queue :parent utils
-  (let ((queue (sb-concurrency:make-queue)))
-    (true (sb-concurrency:queue-empty-p queue))
-    (false (utils:flush-queue queue))
+  (let ((queue (utils:make-queue)))
+    (true (utils:queue-empty-p queue))
+    (finish (utils:flush-queue queue))
+    (true (utils:queue-empty-p queue))
 
-    (sb-concurrency:enqueue nil queue)
-    (false (sb-concurrency:queue-empty-p queue))
-    (utils:flush-queue queue)
-    (true (sb-concurrency:queue-empty-p queue))
+    (utils:enqueue nil queue)
+    (false (utils:queue-empty-p queue))
+    (finish (utils:flush-queue queue))
+    (true (utils:queue-empty-p queue))
 
-    (sb-concurrency:enqueue 1 queue)
-    (false (sb-concurrency:queue-empty-p queue))
-    (true (utils:flush-queue queue))
-    (true (sb-concurrency:queue-empty-p queue))
+    (utils:enqueue 1 queue)
+    (false (utils:queue-empty-p queue))
+    (finish (utils:flush-queue queue))
+    (true (utils:queue-empty-p queue))
 
-    (sb-concurrency:enqueue 1 queue)
-    (sb-concurrency:enqueue 2 queue)
-    (sb-concurrency:enqueue 3 queue)
-    (true (utils:flush-queue queue))
-    (true (sb-concurrency:queue-empty-p queue))
-    (false (utils:flush-queue queue))))
+    (utils:enqueue 1 queue)
+    (utils:enqueue 2 queue)
+    (utils:enqueue 3 queue)
+    (finish (utils:flush-queue queue))
+    (true (utils:queue-empty-p queue))
+    (finish (utils:flush-queue queue))))
 
 
 ;;; ------- thread-pool -------
@@ -82,17 +83,13 @@
 (define-test peek-backlog :parent tpool
   (let ((pool (tpool:make-thread-pool)))
     (is eq nil (tpool::peek-backlog pool))
-    #+sbcl(sb-concurrency:enqueue :work1 (tpool::thread-pool-backlog pool))
-    #-sbcl(cl-fast-queues:enqueue :work1 (tpool::thread-pool-backlog pool))
+    (utils:enqueue :work1 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
-    #+sbcl(sb-concurrency:enqueue :work2 (tpool::thread-pool-backlog pool))
-    #-sbcl(cl-fast-queues:enqueue :work2 (tpool::thread-pool-backlog pool))
+    (utils:enqueue :work2 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
-    #+sbcl(sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
-    #-sbcl(utils:sfifo-dequeue (tpool::thread-pool-backlog pool))
+    (utils:dequeue (tpool::thread-pool-backlog pool))
     (is eq :work2 (tpool:peek-backlog pool))
-    #+sbcl(sb-concurrency:dequeue (tpool::thread-pool-backlog pool))
-    #-sbcl(utils:sfifo-dequeue (tpool::thread-pool-backlog pool))
+    (utils:dequeue (tpool::thread-pool-backlog pool))
     (is eq nil (tpool:peek-backlog pool))))
 
 (define-test make-work-item :parent tpool
