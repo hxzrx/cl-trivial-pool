@@ -1,9 +1,12 @@
 (in-package :cl-trivial-pool)
 
-(defstruct (thread-pool (:constructor make-thread-pool (&key name max-worker-num keepalive-time initial-bindings))
+(defstruct (thread-pool (:constructor make-thread-pool (&key (name (string (gensym "THREAD-POOL-")))
+                                                          (max-worker-num *default-worker-num*)
+                                                          (keepalive-time *default-keepalive-time*)
+                                                          initial-bindings))
                         (:copier nil)
                         (:predicate thread-pool-p))
-  (name              (concatenate 'string "THREAD-POOL-" (string (gensym))) :type string)
+  (name              (string (gensym "THREAD-POOL-")) :type string)
   (initial-bindings  nil            :type list)
   (lock              (bt:make-lock "THREAD-POOL-LOCK"))
   (cvar              (bt:make-condition-variable :name "THREAD-POOL-CVAR"))
@@ -40,7 +43,7 @@
   (peek-queue (thread-pool-backlog pool)))
 
 (defclass work-item ()
-  ((name     :initarg :name   :initform "An work item"  :type string    :accessor work-item-name)
+  ((name     :initarg :name   :initform (string (gensym "WORK-ITEM-"))  :type string    :accessor work-item-name)
    (fun      :initarg :fun                              :type function  :accessor work-item-fun)
    (pool     :initarg :pool   :initform *default-thread-pool* :type thread-pool :accessor work-item-pool)
    (result   :initarg :result :initform nil             :type list      :accessor work-item-result)
@@ -65,7 +68,7 @@
   (print-unreadable-object (work stream :type t)
     (format stream (inspect-work work))))
 
-(defun make-work-item (&key function (pool *default-thread-pool*) (status :created) (name "A work item") desc)
+(defun make-work-item (&key function (pool *default-thread-pool*) (status :created) (name (string (gensym "WORK-ITEM-"))) desc)
   (make-instance 'work-item
                  :fun function
                  :pool pool
@@ -144,19 +147,19 @@ or nil if the work has not finished."
                                                                   :timeout (/ idle-time-remaining
                                                                               internal-time-units-per-second))
                                          #+ccl(tpool-utils::condition-wait cvar lock
-                                                                     :timeout (/ idle-time-remaining
-                                                                                 internal-time-units-per-second))
+                                                                           :timeout (/ idle-time-remaining
+                                                                                       internal-time-units-per-second))
                                          (return)))))))))
             (unwind-protect-unwind-only
-                (catch 'terminate-work
-                  (let ((result (multiple-value-list (funcall (work-item-fun work)))))
-                    (setf (work-item-result work) result
-                          (atomic-place (work-item-status work)) :finished)
-                    (bt:condition-notify (work-item-cvar work))))
-              (atomic-decf (thread-pool-working-num pool))
-              (setf (atomic-place (work-item-status work)) :aborted)
-              (bt:condition-notify (work-item-cvar work))
-              (bt:destroy-thread self))))))
+             (catch 'terminate-work
+               (let ((result (multiple-value-list (funcall (work-item-fun work)))))
+                 (setf (work-item-result work) result
+                       (atomic-place (work-item-status work)) :finished)
+                 (bt:condition-notify (work-item-cvar work))))
+             (atomic-decf (thread-pool-working-num pool))
+             (setf (atomic-place (work-item-status work)) :aborted)
+             (bt:condition-notify (work-item-cvar work))
+             (bt:destroy-thread self))))))
 
 (defun add-thread (pool)
   "Add a thread to a thread pool."
