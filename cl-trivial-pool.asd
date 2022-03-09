@@ -1,5 +1,5 @@
 (defsystem "cl-trivial-pool"
-  :version "0.3.0"
+  :version "0.3.1"
   :description "A common lisp thread pool implemented with atomic operations instead of locks in the worker threads' infinite loop."
   :author "He Xiang-zhi<xz.he@qq.com>"
   :license "MIT"
@@ -11,13 +11,11 @@
   :in-order-to ((test-op (test-op "cl-trivial-pool/tests")))
   :components ((:file "packages")
                (:file "utils")
-               (:file "thread-pool")
-               #+:ignore(:file "thread-pool-sbcl")
-               #+:ignore(:file "thread-pool-ccl")))
+               (:file "thread-pool")))
 
 
 (defsystem "cl-trivial-pool/tests"
-  :version "0.3.0"
+  :version "0.3.1"
   :author "He Xiang-zhi<xz.he@qq.com>"
   :license "MIT"
   :serial t
