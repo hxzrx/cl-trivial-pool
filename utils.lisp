@@ -73,6 +73,9 @@
                     (return t))))))
   #-sbcl(cl-fast-queues:queue-flush queue))
 
+(defun queue-empty-p (queue)
+  #+sbcl(sb-concurrency:queue-empty-p queue)
+  #-sbcl(cl-fast-queues:queue-empty-p queue))
 
 #-sbcl
 (defun sfifo-dequeue (queue)
@@ -88,7 +91,7 @@
 (defun make-atomic (init-value)
   "Return a structure that can be cas'ed"
   #+ccl
-  (make-array 1 :initial-element init-value) ; 注意ccl的place不能是(car list), 可以用(svref #(0) 0)
+  (make-array 1 :initial-element init-value)
   #-ccl
   (cons init-value nil))
 
@@ -118,8 +121,8 @@
      old))
 
 #+ccl
-(defmacro compare-and-swap (place old-value new-value) ; 返回值表示cas是否成功
-    "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
+(defmacro compare-and-swap (place old-value new-value)
+  "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
 Two values are considered to match if they are EQ.
 return T if swap success, otherwise return NIL."
   `(ccl::conditional-store ,place ,old-value ,new-value))
@@ -135,3 +138,18 @@ return T if swap success, otherwise return NIL."
            :for ,new-value = (funcall ,func ,old-value ,@args)
            :until (compare-and-swap ,place ,old-value ,new-value)
            :finally (return ,new-value))))
+
+
+;; bordeaux-threads' condition-wait will always return T whether timeout or not,
+;; but get-result and thread-pool-main rely on the returned value of condition-wait,
+;; and thus this is roughly fixed.
+#+ccl
+(defun condition-wait (condition-variable lock &key timeout)
+  (bt:release-lock lock)
+  (let ((success nil))
+    (unwind-protect
+         (setf success (if timeout
+                           (ccl:timed-wait-on-semaphore condition-variable timeout)
+                           (ccl:wait-on-semaphore condition-variable)))
+      (bt:acquire-lock lock t))
+    success))
