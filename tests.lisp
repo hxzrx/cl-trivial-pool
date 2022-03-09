@@ -6,7 +6,7 @@
 
 (in-package :cl-trivial-pool-tests)
 
-;;; utils
+;;; tpool-utils
 
 (defmacro make-parameterless-fun (fun &rest args)
   "(funcall (make-parameterless-fun + 1 3))"
@@ -26,50 +26,50 @@
 
 
 (define-test peek-queue :parent utils
-  (let ((queue (utils:make-queue)))
-    (is eq nil (utils:peek-queue queue))
-    (is eq nil (utils:peek-queue queue))
+  (let ((queue (tpool-utils:make-queue)))
+    (is eq nil (tpool-utils:peek-queue queue))
+    (is eq nil (tpool-utils:peek-queue queue))
 
-    (utils:enqueue nil queue)
-    (is eq nil (utils:peek-queue queue))
+    (tpool-utils:enqueue nil queue)
+    (is eq nil (tpool-utils:peek-queue queue))
 
-    (utils:dequeue queue)
-    (is eq nil (utils:peek-queue queue))
+    (tpool-utils:dequeue queue)
+    (is eq nil (tpool-utils:peek-queue queue))
 
-    (utils:enqueue t queue)
-    (is eq t (utils:peek-queue queue))
+    (tpool-utils:enqueue t queue)
+    (is eq t (tpool-utils:peek-queue queue))
 
-    (utils:dequeue queue)
-    (is eq nil (utils:peek-queue queue))
+    (tpool-utils:dequeue queue)
+    (is eq nil (tpool-utils:peek-queue queue))
 
-    (utils:enqueue 1 queue)
-    (is = 1 (utils:peek-queue queue))
-    (utils:enqueue 2 queue)
-    (is = 1 (utils:peek-queue queue))))
+    (tpool-utils:enqueue 1 queue)
+    (is = 1 (tpool-utils:peek-queue queue))
+    (tpool-utils:enqueue 2 queue)
+    (is = 1 (tpool-utils:peek-queue queue))))
 
 
 (define-test flush-queue :parent utils
-  (let ((queue (utils:make-queue)))
-    (true (utils:queue-empty-p queue))
-    (finish (utils:flush-queue queue))
-    (true (utils:queue-empty-p queue))
+  (let ((queue (tpool-utils:make-queue)))
+    (true (tpool-utils:queue-empty-p queue))
+    (finish (tpool-utils:flush-queue queue))
+    (true (tpool-utils:queue-empty-p queue))
 
-    (utils:enqueue nil queue)
-    (false (utils:queue-empty-p queue))
-    (finish (utils:flush-queue queue))
-    (true (utils:queue-empty-p queue))
+    (tpool-utils:enqueue nil queue)
+    (false (tpool-utils:queue-empty-p queue))
+    (finish (tpool-utils:flush-queue queue))
+    (true (tpool-utils:queue-empty-p queue))
 
-    (utils:enqueue 1 queue)
-    (false (utils:queue-empty-p queue))
-    (finish (utils:flush-queue queue))
-    (true (utils:queue-empty-p queue))
+    (tpool-utils:enqueue 1 queue)
+    (false (tpool-utils:queue-empty-p queue))
+    (finish (tpool-utils:flush-queue queue))
+    (true (tpool-utils:queue-empty-p queue))
 
-    (utils:enqueue 1 queue)
-    (utils:enqueue 2 queue)
-    (utils:enqueue 3 queue)
-    (finish (utils:flush-queue queue))
-    (true (utils:queue-empty-p queue))
-    (finish (utils:flush-queue queue))))
+    (tpool-utils:enqueue 1 queue)
+    (tpool-utils:enqueue 2 queue)
+    (tpool-utils:enqueue 3 queue)
+    (finish (tpool-utils:flush-queue queue))
+    (true (tpool-utils:queue-empty-p queue))
+    (finish (tpool-utils:flush-queue queue))))
 
 
 ;;; ------- thread-pool -------
@@ -83,13 +83,13 @@
 (define-test peek-backlog :parent tpool
   (let ((pool (tpool:make-thread-pool)))
     (is eq nil (tpool::peek-backlog pool))
-    (utils:enqueue :work1 (tpool::thread-pool-backlog pool))
+    (tpool-utils:enqueue :work1 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
-    (utils:enqueue :work2 (tpool::thread-pool-backlog pool))
+    (tpool-utils:enqueue :work2 (tpool::thread-pool-backlog pool))
     (is eq :work1 (tpool:peek-backlog pool))
-    (utils:dequeue (tpool::thread-pool-backlog pool))
+    (tpool-utils:dequeue (tpool::thread-pool-backlog pool))
     (is eq :work2 (tpool:peek-backlog pool))
-    (utils:dequeue (tpool::thread-pool-backlog pool))
+    (tpool-utils:dequeue (tpool::thread-pool-backlog pool))
     (is eq nil (tpool:peek-backlog pool))))
 
 (define-test make-work-item :parent tpool

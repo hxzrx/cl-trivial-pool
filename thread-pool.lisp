@@ -91,7 +91,7 @@ or nil if the work has not finished."
              (loop while (or (eq (get-status work) :ready)
                              (eq (get-status work) :running))
                    do (or #+sbcl(bt:condition-wait cvar lock :timeout timeout)
-                          #+ccl(utils::condition-wait cvar lock :timeout timeout)
+                          #+ccl(tpool-utils::condition-wait cvar lock :timeout timeout)
                           (return))))
            (with-slots (status result) work
              (if (eq (atomic-place status) :finished)
@@ -143,7 +143,7 @@ or nil if the work has not finished."
                                   do (or #+sbcl(bt:condition-wait cvar lock
                                                                   :timeout (/ idle-time-remaining
                                                                               internal-time-units-per-second))
-                                         #+ccl(utils::condition-wait cvar lock
+                                         #+ccl(tpool-utils::condition-wait cvar lock
                                                                      :timeout (/ idle-time-remaining
                                                                                  internal-time-units-per-second))
                                          (return)))))))))

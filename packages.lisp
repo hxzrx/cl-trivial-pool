@@ -1,4 +1,4 @@
-(defpackage #:utils
+(defpackage #:tpool-utils
   (:use #:cl)
   (:export #:*default-worker-num*
            #:*default-keepalive-time*
@@ -20,7 +20,7 @@
            ))
 
 (defpackage #:cl-trivial-pool
-  (:use #:cl #:utils)
+  (:use #:cl #:tpool-utils)
   (:nicknames #:tpool)
   (:export #:*default-keepalive-time*
            #:*default-worker-num*

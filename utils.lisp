@@ -1,4 +1,4 @@
-(in-package :utils)
+(in-package :tpool-utils)
 
 (defvar *default-worker-num* (max 4 (cpus:get-number-of-processors)))
 
