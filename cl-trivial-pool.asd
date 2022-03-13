@@ -11,7 +11,8 @@
   :in-order-to ((test-op (test-op "cl-trivial-pool/tests")))
   :components ((:file "packages")
                (:file "utils")
-               (:file "thread-pool")))
+               (:file "thread-pool")
+               (:file "promise")))
 
 
 (defsystem "cl-trivial-pool/tests"
