@@ -17,6 +17,7 @@
            #:atomic-incf
            #:atomic-decf
            #:atomic-update
+           #:make-nullary
            ))
 
 (defpackage #:cl-trivial-pool

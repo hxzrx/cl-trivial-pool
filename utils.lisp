@@ -153,3 +153,7 @@ return T if swap success, otherwise return NIL."
                            (ccl:wait-on-semaphore condition-variable)))
       (bt:acquire-lock lock t))
     success))
+
+(defmacro make-nullary (() &body body)
+  "Make up a nullary function which accept none args."
+  `(lambda () ,@body))
