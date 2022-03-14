@@ -29,7 +29,18 @@
            #:*default-worker-num*
            #:*default-thread-pool*
            #:thread-pool
+           #:thread-pool-name
+           #:thread-pool-initial-bindings
+           #:thread-pool-max-worker-num
+           #:thread-pool-idle-num
+           #:thread-pool-backlog
+           #:thread-pool-shutdown-p
+           #:thread-pool-keepalive-time
            #:work-item
+           #:work-item-pool
+           #:work-item-fn
+           #:work-item-name
+           #:work-item-desc
            #:make-thread-pool
            #:make-work-item
            #:with-work-item
