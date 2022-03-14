@@ -1,3 +1,15 @@
+;;;; Here, we treat the promise as a generalization of the thread-pool's work-item.
+;;;; The main difference are:
+;;;; 1. An work-item is purely a calculation task,
+;;;;    which will return the final result once it's been scheduled and there will be no further changes,
+;;;;    while an promise's final result may be worked out once only,
+;;;;    or may be worked out some time in the future as it depends on some other situations.
+;;;;    So, the result of a promise may be another promise with the former's status slot :finished.
+;;;;    And so, a promise's final result may be worked out by callbacks through other promise.
+;;;; 2. A promise's finish event may results some callbacks.
+;;;;    Although this callback can be invoked within the work-item's workload function,
+;;;;    in an async context, this is inevitable if a promise is finished by another promise.
+;;;;
 ;;;; promise可以看作是work的推广, work是promise的一种特殊形式.
 ;;;; 其区别主要在于, work只是单纯的执行一个计算, 若不考虑排队事件, 可以认为是瞬间执行的呃.
 ;;;; 而promise是在将来某个时间点才能完成, 其完成还依赖于其它条件, 其完成结果可能是另一个promise,
@@ -58,14 +70,14 @@
 
 (defmethod finish-promise ((promise promise) &rest args)
   ;; there will be a method combine to set other slot such as status
-    (setf (work-item-result promise) args))
+  (setf (work-item-result promise) args))
 
 (defmethod reject-promise ((promise promise) condition)
   ;; method combinitions also
   (setf (slot-value promise 'error-obj) condition))
 
 (defmacro make-resolve-fn (promise)
-  "return an function that accept any numbers of arguments to finish the promise"
+  "Return an function that accept any numbers of arguments to finish the promise"
   ;; (funcall (make-resolve-fn (make-instance 'promise)) 1 2 3)
   (let ((pm (gensym)))
     `(lambda (&rest args)
@@ -78,45 +90,60 @@
 (defmethod resolve ((promise promise) &rest args)
   (apply #'finish-promise promise args))
 
-(defun make-promise (&key function
-                       (pool *default-thread-pool*)
-                       (name (string (gensym "PROMISE-")))
-                       bindings desc)
-  ;; create-fn is a function which accepts exact one argument: an promise object,
-  ;; which is the work-item's workload function.
-  ;; the resolve function accept at least one argument to finish the promise,
-  ;; the reject function accept an condition object and it's revoked when some error is signaled.
-  (let* ((work (make-work-item :pool pool
-                               :name name
-                               :bindings bindings
-                               :desc desc))
-         (promise (change-class work 'promise)))
-    (setf (work-item-fn promise) function)
-    promise))
+(defun make-promise (fn &key (pool *default-thread-pool*)
+                          (name (string (gensym "PROMISE-")))
+                          bindings desc)
+  "This function returns an promise instance by specifying it's work-item-fn.
+`fn', the create function, is a function which accepts exact one argument: an promise object, which is the work-item's workload function.
 
-(defmacro make-ternary ((promise resolve reject &optional bindings) &body body)
-  "Return a ternary function which takes no arguments"
-  ;;(funcall (make-ternary (a b c) (+ a b c)) 1 2 3)
-  (if bindings
-      (let ((bind (gensym)))
-        `(let* ((,bind ,bindings)
-                (vars (mapcar #'first ,bind))
-                (vals (mapcar #'second ,bind)))
-           (lambda (,promise ,resolve ,reject)
-             (declare (ignorable ,promise ,resolve ,reject))
-             (progv vars vals
-               ,@body))))
-      `(lambda (,promise ,resolve ,reject)
-         (declare (ignorable ,promise ,resolve ,reject))
-         ,@body)))
+The functions resolve and reject can be called within the body of fn to resolve or reject the promise accordingly.
 
+The value returned by `fn' should be the result of the workload which can be the real result, a promise, or a condition if an error signals.
 
-(defmacro with-promise ((&key (pool *default-thread-pool*) bindings name) &body body)
-  ;; (funcall (with-promise () (+ 1 1)))
-  (let* ((promised (change-class (make-work-item :pool pool
-                                               :name name
-                                               :bindings bindings)
-                               'promise))
-         (ternary `(make-ternary (promise resolve reject ,bindings) ,@body)))
-    (format t "ternary:~d~%" ternary)
-    `(setf (work-item-fn ,promised) (lambda () (funcall ,ternary ,promised #'resolve #'reject)))))
+so, if there's no error signaled, this result will:
+1. fullfill the promise, 2. as a normal return to fill the result slot of the promise object.
+
+Thus the template of the create function `fn' would like:
+  (lambda (promise)
+    (let* ((result-or-condition (run-the-real-workload)))
+      (resolve-or-reject-the-promise) ; by invkoing resolve or reject
+      result-or-condition))
+"
+  ;; (funcall (work-item-fn (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3)))))
+  ;; (add-work (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3))))
+  (let* ((work (change-class (make-work-item :pool pool
+                                             :name name
+                                             :desc desc)
+                             'promise)))
+    (setf (work-item-fn work) (if bindings
+                                  (let ((vars (mapcar #'first bindings))
+                                        (vals (mapcar #'second bindings)))
+                                    (lambda () (progv vars vals
+                                                 (funcall fn work))))
+                                  (lambda () (funcall fn work))))
+    work))
+
+(defmacro with-promise ((promise &key (pool *default-thread-pool*) bindings name desc) &body body)
+  "Make a promise instance by specify it's create-function's body.
+The functions resolve and reject can be called within `body' to resolve or reject the new promise accordingly.
+Like the function make-promise, with-promise's `body' parameter should return the result of the workload.
+This is the preferred way to make a promise."
+  ;; (with-promise (promise) (+ 1 1))
+  ;; (funcall (work-item-fn (with-promise (promise) (+ 1 1))))
+  ;; (with-promise (promise :bindings '((a 1) (b 2))) (+ a b))
+  ;; (funcall (work-item-fn (with-promise (promise :bindings '((a 1) (b 2))) (+ a b))))
+  (let ((binds (gensym))
+        (bindings% bindings))
+    `(let* ((work (change-class (make-work-item :pool ,pool
+                                                :name ,name
+                                                :desc ,desc)
+                                'promise))
+            (,binds ,bindings%)
+            (fn (make-unary (,promise) ,@body)))
+       (setf (work-item-fn work) (if ,binds
+                                     (let ((vars (mapcar #'first ,binds))
+                                           (vals (mapcar #'second ,binds)))
+                                       (lambda () (progv vars vals
+                                                    (funcall fn work))))
+                                     (lambda () (funcall fn work))))
+       work)))
