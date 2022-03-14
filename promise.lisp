@@ -72,68 +72,51 @@
        (let ((,pm ,promise))
          (apply #'finish-promise ,pm args)))))
 
-(defmacro make-reject-fn (promise)
-  ;; (funcall (make-reject-fn (make-instance 'promise)) :sss)
-  (let ((pm (gensym)))
-    `(lambda (condition)
-       (let ((,pm ,promise))
-         (funcall #'reject-promise ,pm condition)))))
+(defmethod reject ((promise promise) condition)
+  (reject-promise promise condition))
 
-(defun make-promise (&key create-fun
+(defmethod resolve ((promise promise) &rest args)
+  (apply #'finish-promise promise args))
+
+(defun make-promise (&key function
                        (pool *default-thread-pool*)
                        (name (string (gensym "PROMISE-")))
                        bindings desc)
-  ;; create-fn is a function which accepts exact two arguments: the resolve function and the reject function.
+  ;; create-fn is a function which accepts exact one argument: an promise object,
+  ;; which is the work-item's workload function.
   ;; the resolve function accept at least one argument to finish the promise,
   ;; the reject function accept an condition object and it's revoked when some error is signaled.
   (let* ((work (make-work-item :pool pool
                                :name name
                                :bindings bindings
                                :desc desc))
-         (promise (change-class work 'promise))
-         (resolve-fn (make-resolve-fn promise))
-         (reject-fn (make-reject-fn promise)))
-    (setf (work-item-fun promise)
-          #'(lambda () (funcall create-fun resolve-fn reject-fn)))
+         (promise (change-class work 'promise)))
+    (setf (work-item-fn promise) function)
     promise))
 
+(defmacro make-ternary ((promise resolve reject &optional bindings) &body body)
+  "Return a ternary function which takes no arguments"
+  ;;(funcall (make-ternary (a b c) (+ a b c)) 1 2 3)
+  (if bindings
+      (let ((bind (gensym)))
+        `(let* ((,bind ,bindings)
+                (vars (mapcar #'first ,bind))
+                (vals (mapcar #'second ,bind)))
+           (lambda (,promise ,resolve ,reject)
+             (declare (ignorable ,promise ,resolve ,reject))
+             (progv vars vals
+               ,@body))))
+      `(lambda (,promise ,resolve ,reject)
+         (declare (ignorable ,promise ,resolve ,reject))
+         ,@body)))
 
-(defmacro make-create-fn-helper (promise resolve reject &body body)
-  ;; the returned value of this function, should be the returnen value of body,
-  ;; new promise can be created with the body, so the returned can be a promise, this will set to the promise's result slot.
-  (declare (ignorable promise resolve reject))
-  `(progn  ,@body))
 
-
-(defmacro make-create-fn (promise-obj resolve-fn reject-fn &body body)
-  ;; (funcall (make-create-fn 1 2 3 4))
-  (declare (ignorable promise resolve reject))
-  (lambda () (make-create-fn-helper promise resolve reject body)))
-
-
-(defmacro with-promise ((promise resolve reject
-                         &key; (promise-obj (gensym "promise-"))
-                           ;(resolve-fn (gensym "resolve-fn"))
-                           ;(reject-fn (gensym "reject-fn"))
-                           (pool *default-thread-pool*)
-                           bindings
-                           name)
-                        &body body)
-  (let* ((promised-work (change-class (make-work-item :pool pool
-                                                      :name name
-                                                      :bindings bindings)
-                                     'promise))
-         (resolve-fn (make-resolve-fn promised-work))
-         (reject-fn (make-reject-fn promised-work))
-         (zero-arg-fun (lambda ()
-                         `(let ((,promise ,promised-work))
-                           (declare (ignorable ,promise))
-                           (flet ((,resolve (&rest args) (apply ,resolve-fn args))
-                                  (,reject (condition) (funcall ,reject-fn condition)))
-                             (declare (ignorable ,resolve ,reject))
-                             (let ((res (multiple-value-list (funcall #'(lambda () ,@body)))))
-                               (unless (slot-value ,promise 'fun)
-                                 (setf (slot-value ,promise 'result) res))
-                               res))))))
-    (setf (slot-value promised-work 'fun) zero-arg-fun)
-    promised-work))
+(defmacro with-promise ((&key (pool *default-thread-pool*) bindings name) &body body)
+  ;; (funcall (with-promise () (+ 1 1)))
+  (let* ((promised (change-class (make-work-item :pool pool
+                                               :name name
+                                               :bindings bindings)
+                               'promise))
+         (ternary `(make-ternary (promise resolve reject ,bindings) ,@body)))
+    (format t "ternary:~d~%" ternary)
+    `(setf (work-item-fn ,promised) (lambda () (funcall ,ternary ,promised #'resolve #'reject)))))
