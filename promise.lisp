@@ -105,12 +105,7 @@ Thus the template of the create function `fn' would like:
                                              :name name
                                              :desc desc)
                              'promise)))
-    (setf (work-item-fn work) (if bindings
-                                  (let ((vars (mapcar #'first bindings))
-                                        (vals (mapcar #'second bindings)))
-                                    (lambda () (progv vars vals
-                                                 (funcall fn work))))
-                                  (lambda () (funcall fn work))))
+    (setf (work-item-fn work) (wrap-bindings fn bindings work))
     work))
 
 (defmacro with-promise ((promise &key (pool *default-thread-pool*) bindings name desc) &body body)
@@ -122,18 +117,11 @@ This is the preferred way to make a promise."
   ;; (funcall (work-item-fn (with-promise (promise) (+ 1 1))))
   ;; (with-promise (promise :bindings '((a 1) (b 2))) (+ a b))
   ;; (funcall (work-item-fn (with-promise (promise :bindings '((a 1) (b 2))) (+ a b))))
-  (let ((binds (gensym))
-        (bindings% bindings))
-    `(let* ((work (change-class (make-work-item :pool ,pool
-                                                :name ,name
-                                                :desc ,desc)
-                                'promise))
-            (,binds ,bindings%)
-            (fn (make-unary (,promise) ,@body)))
-       (setf (work-item-fn work) (if ,binds
-                                     (let ((vars (mapcar #'first ,binds))
-                                           (vals (mapcar #'second ,binds)))
-                                       (lambda () (progv vars vals
-                                                    (funcall fn work))))
-                                     (lambda () (funcall fn work))))
-       work)))
+  ;; (add-work (with-promise (promise :bindings '((a 1) (b 2))) (+ a b)))
+  `(let* ((work (change-class (make-work-item :pool ,pool
+                                              :name ,name
+                                              :desc ,desc)
+                              'promise))
+          (fn (make-unary (,promise) ,@body)))
+     (setf (work-item-fn work) (wrap-bindings fn ,bindings work))
+     work))
