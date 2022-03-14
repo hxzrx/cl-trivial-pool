@@ -448,3 +448,30 @@
     (is-values (tpool:get-result work2 t 1) (eql nil) (eql nil)) ; test timeout
     (format t "~&This test shoule wait for 4 second.~%")
     (is-values (tpool:get-result work2 t) (equal (list 6)) (eql t))))
+
+(defparameter *some-bind* 3)
+
+(define-test with-work-item :parent tpool
+  ;; Will be warned and it's OK.
+  (let* ((work1 (tpool:with-work-item (:pool tpool:*default-thread-pool*) ; bindings nil
+                  (+ 1 2 3)))
+         (work2 (tpool:with-work-item (:pool tpool:*default-thread-pool* ; bindings non-nil
+                                       :bindings '((a 1) (b 2) (c 3)))
+                  (+ a b c)))
+         (tpool (tpool:make-thread-pool))
+         (work3 (tpool:with-work-item (:pool tpool
+                                       :bindings '((*some-bind* 3)))
+                  (+ 3 *some-bind*))))
+
+    (true (tpool:work-item-p work1))
+    (true (tpool:work-item-p work2))
+    (true (tpool:work-item-p work3))
+    (is = 6 (funcall (slot-value work1 'tpool::fn)))
+    (is = 6 (funcall (slot-value work2 'tpool::fn)))
+    (is = 6 (funcall (slot-value work3 'tpool::fn)))
+    (tpool:add-work work1)
+    (tpool:add-work work2)
+    (tpool:add-work work3)
+    (is = 6 (car (tpool:get-result work1)))
+    (is = 6 (car (tpool:get-result work2)))
+    (is = 6 (car (tpool:get-result work3)))))
