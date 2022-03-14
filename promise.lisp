@@ -17,19 +17,9 @@
 ;;;; 另一个区别是, promise包含了完成事件的回调,
 ;;;; 当得到解决时通知所关联的其它事件, 这个事件不一定是关联到promise, 可能仅仅是一般简单的调用某个函数.
 
-(in-package :cl-trivial-pool)
+(in-package :promise)
 
 ;;; conditions definition
-
-(defun wrap-bindings (fn bindings)
-  "wrap bindings to function `fn' who accept none parameters"
-  ;; (funcall (wrap-bindings #'(lambda () (+ a b)) '((a 1) (b 2))))
-  (if bindings
-      (let ((vars (mapcar #'first bindings))
-            (vals (mapcar #'second bindings)))
-        (lambda () (progv vars vals
-                     (funcall fn))))
-      fn))
 
 (define-condition promise-condition (condition)
   ((reason :initarg :reason :initform nil :accessor reason)
@@ -84,11 +74,11 @@
        (let ((,pm ,promise))
          (apply #'finish-promise ,pm args)))))
 
-(defmethod reject ((promise promise) condition)
-  (reject-promise promise condition))
-
 (defmethod resolve ((promise promise) &rest args)
   (apply #'finish-promise promise args))
+
+(defmethod reject ((promise promise) condition)
+  (reject-promise promise condition))
 
 (defun make-promise (fn &key (pool *default-thread-pool*)
                           (name (string (gensym "PROMISE-")))
