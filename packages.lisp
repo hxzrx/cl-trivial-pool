@@ -19,6 +19,7 @@
            #:atomic-update
            #:make-nullary
            #:make-unary
+           #:wrap-bindings
            ))
 
 (defpackage #:cl-trivial-pool
@@ -48,3 +49,15 @@
            #:shutdown-pool
            #:restart-pool
            #:terminate-work))
+
+(defpackage #:promise
+  (:use #:cl #:tpool-utils #:cl-trivial-pool)
+  (:export #:signal-promise-error
+           #:signal-promise-warning
+           #:signal-promise-condition
+           #:promise
+           #:resolve
+           #:reject
+           #:make-promise
+           #:with-promise
+           ))
