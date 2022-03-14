@@ -50,39 +50,39 @@
 ;;; promise class definition
 
 (defclass promise (work-item)
-  ((callbacks  :initarg :callbacks  :initform nil :type list :accessor callbacks)
-   (errbacks   :initarg :errbacks   :initform nil :type list :accessor errbacks)
+  ((callbacks  :initarg :callbacks  :initform (make-queue) :type list :accessor callbacks)
+   (errbacks   :initarg :errbacks   :initform (make-queue) :type list :accessor errbacks)
    (forward    :initarg :forward    :initform nil :accessor forward)
-   (error-obj  :initarg :error-obj  :initform nil :accessor error-obj)
    ;; even if the work-item's status is :finished, the promise may not finish yet, and thus finished-p provides further info
-   (finished-p :initarg :finished-p :initform nil :accessor finished-p)
+   (finishedp :initarg :finished-p :initform nil :accessor finishedp)
+   (errorp     :initarg :errorp     :initform nil :accessor errorp)
+   (error-obj  :initarg :error-obj  :initform nil :accessor error-obj)
    ))
 
 (defun promisep (promise)
   "Is this a promise?"
   (subtypep (type-of promise) 'promise))
 
-(defmethod finish-promise ((promise promise) &rest args)
+(defmethod finish-promise% ((promise promise) &rest args)
   ;; there will be a method combine to set other slot such as status
-  (setf (work-item-result promise) args))
+  (setf (slot-value promise 'work-item-result) args)
+  promise)
 
-(defmethod reject-promise ((promise promise) condition)
+(defmethod finish-promise% :after ((promise promise) &rest args)
+  (unless (promisep (car args))
+    (setf (slot-value promise 'finishedp) t)))
+
+(defmethod reject-promise% ((promise promise) condition)
   ;; method combinitions also
-  (setf (slot-value promise 'error-obj) condition))
-
-(defmacro make-resolve-fn (promise)
-  "Return an function that accept any numbers of arguments to finish the promise"
-  ;; (funcall (make-resolve-fn (make-instance 'promise)) 1 2 3)
-  (let ((pm (gensym)))
-    `(lambda (&rest args)
-       (let ((,pm ,promise))
-         (apply #'finish-promise ,pm args)))))
+  (setf (slot-value promise 'error-obj) condition
+        (slot-value promise 'errorp) t)
+  promise)
 
 (defmethod resolve ((promise promise) &rest args)
-  (apply #'finish-promise promise args))
+  (apply #'finish-promise% promise args))
 
 (defmethod reject ((promise promise) condition)
-  (reject-promise promise condition))
+  (reject-promise% promise condition))
 
 (defun make-promise (fn &key (pool *default-thread-pool*)
                           (name (string (gensym "PROMISE-")))
@@ -102,6 +102,8 @@ Thus the template of the create function `fn' would like:
     (let* ((result-or-condition (run-the-real-workload)))
       (resolve-or-reject-the-promise) ; by invkoing resolve or reject
       result-or-condition))
+
+by using with-error-handling, errors will be handled with rejecte called.
 "
   ;; (funcall (work-item-fn (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3)))))
   ;; (add-work (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3))))
@@ -109,7 +111,17 @@ Thus the template of the create function `fn' would like:
                                              :name name
                                              :desc desc)
                              'promise)))
-    (setf (work-item-fn work) (wrap-bindings fn bindings work))
+    ;;(setf (work-item-fn work) (wrap-bindings fn bindings work))
+    (setf (work-item-fn work) (wrap-bindings
+                               (lambda ()
+                                (let ((*promise* work))
+                                  (with-error-handling
+                                      (lambda (err)
+                                        (funcall (alexandria:curry #'reject work) err) ; (reject work err)
+                                        (return-from exit-on-error))
+                                    (funcall fn work))))
+                               bindings))
+
     work))
 
 (defmacro with-promise ((promise &key (pool *default-thread-pool*) bindings name desc) &body body)
@@ -127,7 +139,24 @@ This is the preferred way to make a promise."
                                               :desc ,desc)
                               'promise))
           (fn (make-unary (,promise) ,@body)))
-     (setf (work-item-fn work) (wrap-bindings fn ,bindings work))
+     ;;( setf (work-item-fn work) (wrap-bindings fn ,bindings work))
+     (setf (work-item-fn work) (wrap-bindings (lambda ()
+                                                (let ((*promise* work))
+                                                  (with-error-handling
+                                                      (lambda (err)
+                                                        (funcall (alexandria:curry #'reject work) err) ; (reject work err)
+                                                        (return-from exit-on-error))
+                                                    (funcall fn work))))
+                                              ,bindings))
      work))
 
-;(defun attach-callback
+(defmethod attach-callback ((promise promise) callback)
+  "Enqueue an callback function to the promise."
+  (enqueue callback (slot-value promise 'callbacks)))
+
+(defmethod do-callbacks ((promise promise))
+  "Invoke each callback of the promise in order.
+Note that the result should be solved first without error signaled (finished-p slot is T). "
+  (with-slots (result callbacks) promise
+    (loop unless (queue-empty-p callbacks)
+            do (apply (dequeue callbacks) result))))
