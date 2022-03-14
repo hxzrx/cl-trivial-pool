@@ -58,6 +58,10 @@
    (finished-p :initarg :finished-p :initform nil :accessor finished-p)
    ))
 
+(defun promisep (promise)
+  "Is this a promise?"
+  (subtypep (type-of promise) 'promise))
+
 (defmethod finish-promise ((promise promise) &rest args)
   ;; there will be a method combine to set other slot such as status
   (setf (work-item-result promise) args))
@@ -125,3 +129,5 @@ This is the preferred way to make a promise."
           (fn (make-unary (,promise) ,@body)))
      (setf (work-item-fn work) (wrap-bindings fn ,bindings work))
      work))
+
+;(defun attach-callback

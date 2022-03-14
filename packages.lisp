@@ -20,6 +20,8 @@
            #:make-nullary
            #:make-unary
            #:wrap-bindings
+           #:*debug-on-error*
+           #:with-error-handling
            ))
 
 (defpackage #:cl-trivial-pool
@@ -67,6 +69,7 @@
            #:signal-promise-warning
            #:signal-promise-condition
            #:promise
+           #:promisep
            #:resolve
            #:reject
            #:make-promise
