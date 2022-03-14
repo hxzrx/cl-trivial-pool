@@ -157,3 +157,11 @@ return T if swap success, otherwise return NIL."
 (defmacro make-nullary (() &body body)
   "Make up a nullary function which accept none args."
   `(lambda () ,@body))
+
+(defmacro make-unary ((arg) &body body)
+  "Make up a unary function which accept exactly one argument.
+`arg' is the parameter used within `body'."
+  ;; (funcall (make-unary (a) (* a a)) 3)
+  `(lambda (,arg)
+     (declare (ignorable ,arg))
+     ,@body))

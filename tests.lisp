@@ -75,6 +75,12 @@
   (is = 6 (funcall (tpool-utils:make-nullary ()
                      (+ 1 2 3)))))
 
+(define-test make-unary :parent utils
+  (let ((x 10))
+    (is = (* x x) (funcall (tpool-utils:make-unary (a)
+                             (* a a))
+                           x))))
+
 
 ;;; ------- thread-pool -------
 
