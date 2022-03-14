@@ -42,7 +42,7 @@
 
 (defclass work-item ()
   ((name     :initarg :name   :initform (string (gensym "WORK-ITEM-"))  :type string    :accessor work-item-name)
-   (fun      :initarg :fun                              :type function  :accessor work-item-fun)
+   (fn       :initarg :fn                               :type function  :accessor work-item-fn)
    (pool     :initarg :pool   :initform *default-thread-pool* :type thread-pool :accessor work-item-pool)
    (result   :initarg :result :initform nil             :type list      :accessor work-item-result)
    ;; :created :running :aborted :ready :finished :cancelled :rejected
@@ -68,7 +68,7 @@
 
 (defun make-work-item (&key function (pool *default-thread-pool*) (status :created) (name (string (gensym "WORK-ITEM-"))) desc)
   (make-instance 'work-item
-                 :fun function
+                 :fn function
                  :pool pool
                  :status (make-array 1 :initial-element status)
                  :name name
@@ -146,7 +146,7 @@ or nil if the work has not finished."
                                          (return)))))))))
             (unwind-protect-unwind-only
                 (catch 'terminate-work
-                  (let ((result (multiple-value-list (funcall (work-item-fun work)))))
+                  (let ((result (multiple-value-list (funcall (work-item-fn work)))))
                     (setf (work-item-result work) result
                           (svref (work-item-status work) 0) :finished)
                     (bt:condition-notify (work-item-cvar work))))

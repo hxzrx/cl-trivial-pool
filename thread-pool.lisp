@@ -44,9 +44,9 @@
 
 (defclass work-item ()
   ((name     :initarg :name   :initform (string (gensym "WORK-ITEM-"))  :type string    :accessor work-item-name)
-   (fun      :initarg :fun                              :type function  :accessor work-item-fun)
-   (pool     :initarg :pool   :initform nil :type thread-pool :accessor work-item-pool)
-   (result   :initarg :result :initform nil             :type list      :accessor work-item-result)
+   (fn       :initarg :fn     :initform nil :accessor work-item-fn)
+   (pool     :initarg :pool   :initform nil :accessor work-item-pool)
+   (result   :initarg :result :initform nil :type list :accessor work-item-result)
    ;; :created :running :aborted :ready :finished :cancelled :rejected
    ;;(status   :initarg :status :initform (list :created) :type list    :accessor work-item-status) ; use list to enable atomic
    (status   :initarg :status :initform (make-atomic :created)    :accessor work-item-status)
@@ -74,7 +74,7 @@
                          (name (string (gensym "WORK-ITEM-")))
                          bindings desc)
   (make-instance 'work-item
-                 :fun (if bindings
+                 :fn (if bindings
                           (let ((vars (mapcar #'first bindings))
                                 (vals (mapcar #'second bindings)))
                             (lambda () (progv vars vals
@@ -161,7 +161,7 @@ or nil if the work has not finished."
                                          (return)))))))))
             (unwind-protect-unwind-only
              (catch 'terminate-work
-               (let ((result (multiple-value-list (funcall (work-item-fun work)))))
+               (let ((result (multiple-value-list (funcall (work-item-fn work)))))
                  (setf (work-item-result work) result
                        (atomic-place (work-item-status work)) :finished)
                  (bt:condition-notify (work-item-cvar work))))
