@@ -71,6 +71,10 @@
     (true (tpool-utils:queue-empty-p queue))
     (finish (tpool-utils:flush-queue queue))))
 
+(define-test make-nullary :parent utils
+  (is = 6 (funcall (tpool-utils:make-nullary ()
+                     (+ 1 2 3)))))
+
 
 ;;; ------- thread-pool -------
 
