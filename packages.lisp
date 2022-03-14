@@ -20,8 +20,10 @@
            #:make-nullary
            #:make-unary
            #:wrap-bindings
-           #:*debug-on-error*
            #:with-error-handling
+           #:*debug-on-error*
+           #:*promise*
+           #:exit-on-error
            ))
 
 (defpackage #:cl-trivial-pool
@@ -41,6 +43,7 @@
            #:work-item
            #:work-item-pool
            #:work-item-fn
+           #:work-item-result
            #:work-item-name
            #:work-item-desc
            #:make-thread-pool
