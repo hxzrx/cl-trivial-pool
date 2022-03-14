@@ -18,6 +18,7 @@
            #:atomic-decf
            #:atomic-update
            #:make-nullary
+           #:make-unary
            ))
 
 (defpackage #:cl-trivial-pool
