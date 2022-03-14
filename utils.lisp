@@ -165,3 +165,13 @@ return T if swap success, otherwise return NIL."
   `(lambda (,arg)
      (declare (ignorable ,arg))
      ,@body))
+
+(defun wrap-bindings (fn bindings)
+  "Wrap bindings to function `fn' which accept none parameters"
+  ;; (funcall (wrap-bindings #'(lambda () (+ a b)) '((a 1) (b 2))))
+  (if bindings
+      (let ((vars (mapcar #'first bindings))
+            (vals (mapcar #'second bindings)))
+        (lambda () (progv vars vals
+                     (funcall fn))))
+      fn))
