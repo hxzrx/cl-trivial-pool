@@ -1,7 +1,7 @@
 (defsystem "cl-trivial-pool"
-  :version "0.3.1"
+  :version "0.4.0"
   :description "A common lisp thread pool implemented with atomic operations instead of locks in the worker threads' infinite loop."
-  :author "He Xiang-zhi<xz.he@qq.com>"
+  :author "He Xiang-zhi <xz.he@qq.com>"
   :license "MIT"
   :depends-on (:cl-cpus
                :bordeaux-threads
@@ -16,8 +16,8 @@
 
 
 (defsystem "cl-trivial-pool/tests"
-  :version "0.3.1"
-  :author "He Xiang-zhi<xz.he@qq.com>"
+  :version "0.4.0"
+  :author "He Xiang-zhi <xz.he@qq.com>"
   :license "MIT"
   :serial t
   :depends-on (:cl-trivial-pool
