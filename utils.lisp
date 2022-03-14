@@ -182,3 +182,44 @@ return T if swap success, otherwise return NIL."
       (if args
           (lambda () (apply fn args))
           fn)))
+
+(defvar *debug-on-error* nil
+  "If t, will not catch errors passing through the handlers and will let them bubble up to the debugger.")
+
+#+:ignore
+(defmacro with-error-handling ((blockname &optional promise) error-fn &body body)
+  "Wraps some nice restarts around the bits of code that run our promises and handles errors."
+  (let ((last-err (gensym "last-err")))
+    `(let ((,last-err nil))
+       (block ,blockname
+         (handler-bind
+             ((error (lambda (e)
+                       (setf ,last-err e)
+                       (unless *debug-on-error*
+                         (funcall ,error-fn e)))))
+           (restart-case
+               (progn ,@body)
+             (reject-promise ()
+               :report (lambda (s) (format s "Reject the promise ~a" ,promise))
+               (format *debug-io* "~&;; promise rejected~%")
+               (funcall ,error-fn ,last-err))))))))
+
+(defparameter *promise* nil
+  "A promise that will be rebound when making a promise instance.")
+
+(defmacro with-error-handling (error-handler &body body)
+  "Wraps some nice restarts around the bits of code that run our promises and handles errors."
+  (let ((last-err (gensym "last-err")))
+    `(let ((,last-err nil))
+       (block exit-on-error
+         (handler-bind
+             ((error (lambda (err)
+                       (setf ,last-err err)
+                       (unless *debug-on-error*
+                         (funcall ,error-handler err)))))
+           (restart-case
+               (progn ,@body)
+             (reject-promise ()
+               :report (lambda (s) (format s "Reject the promise ~a" *promise*))
+               (format *debug-io* "~&The promise was rejected: ~d~%" *promise*)
+               (funcall ,error-handler ,last-err))))))))
