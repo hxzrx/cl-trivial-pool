@@ -68,6 +68,10 @@
   (print-unreadable-object (work stream :type t)
     (format stream (inspect-work work))))
 
+(defun work-item-p (work)
+  "Return T if `work' is an instance of work-item or else return NIL."
+  (typep work 'work-item))
+
 (defun make-work-item (&key function
                          (pool *default-thread-pool*)
                          (status :created)
@@ -84,6 +88,30 @@
                  :status (make-atomic status)
                  :name name
                  :desc desc))
+
+(defmacro with-work-item ((&key (pool *default-thread-pool*)
+                             (status :created)
+                             (name (string (gensym "WORK-ITEM-")))
+                             bindings desc) &body body)
+  "Return an work-item object whose fn slot is made up with `body'"
+  ;; (with-work-item () (+ 1 1))
+  ;; (funcall (slot-value (with-work-item () (+ 1 1)) 'fn))
+  ;; (funcall (work-item-fn (with-work-item (:bindings '((a 1) (b 2))) (+ a b))))
+  (let ((binds (gensym))
+        (bindings% bindings))
+    `(let* ((work (make-instance 'work-item :pool ,pool
+                                            :status (make-atomic ,status)
+                                            :name ,name
+                                            :desc ,desc))
+            (,binds ,bindings%)
+            (fn (if ,binds
+                    (let ((vars (mapcar #'first ,binds))
+                          (vals (mapcar #'second ,binds)))
+                      (lambda () (progv vars vals
+                                   (funcall (make-nullary () ,@body)))))
+                    (make-nullary () ,@body))))
+       (setf (slot-value work 'fn) fn)
+       work)))
 
 (defmethod get-status ((work work-item))
   "Return the status of an work-item instance."
@@ -201,7 +229,6 @@ thread pool's initial-bindings."
                :status :ready
                :name name
                :desc desc)))
-    (format t "add a new task: ~d~%" work)
     (with-slots (backlog max-worker-num working-num idle-num) pool
       (when (thread-pool-shutdown-p pool)
         (error "Attempted to add work item to a shut down thread pool ~S" pool))
@@ -233,7 +260,7 @@ Returns a list of the work items added."
   "Enqueue a work-item to a thread-pool."
   (declare (ignore priority))
   (unless (eq (work-item-pool work) pool)
-    (setf (work-item-pool work) pool)) ; this will not likly compete by threads
+    (setf (work-item-pool work) pool)) ; this will not likely compete among threads
   (with-slots (backlog max-worker-num working-num idle-num) pool
     (when (thread-pool-shutdown-p pool)
       (error "Attempted to add work item to a shut down thread pool ~S" pool))
@@ -241,7 +268,6 @@ Returns a list of the work items added."
     (enqueue work backlog)
     (when (and (= (thread-pool-idle-num pool) 0)
                (< (+ working-num idle-num) max-worker-num))
-      (format t "should create thread~%")
       (setf (gethash (gensym) (thread-pool-thread-table pool))
             (bt:make-thread (lambda () (thread-pool-main pool))
                             :name (concatenate 'string "Worker of " (thread-pool-name pool))

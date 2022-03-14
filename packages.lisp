@@ -30,8 +30,10 @@
            #:work-item
            #:make-thread-pool
            #:make-work-item
+           #:with-work-item
            #:inspect-pool
            #:inspect-work
+           #:work-item-p
            #:peek-backlog
            #:add-thread
            #:add-task
