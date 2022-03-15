@@ -70,7 +70,7 @@
 
 (defun work-item-p (work)
   "Return T if `work' is an instance of work-item or else return NIL."
-  (typep work 'work-item))
+  (subtypep (type-of work) 'work-item))
 
 (defun make-work-item (&key function
                          (pool *default-thread-pool*)
