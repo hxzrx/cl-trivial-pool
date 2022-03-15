@@ -46,6 +46,7 @@
            #:work-item-result
            #:work-item-name
            #:work-item-desc
+           #:work-item-status
            #:make-thread-pool
            #:make-work-item
            #:with-work-item
@@ -72,6 +73,7 @@
            #:signal-promise-warning
            #:signal-promise-condition
            #:promise
+           #:inspect-promise
            #:promisep
            #:resolve
            #:reject

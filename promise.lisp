@@ -59,6 +59,21 @@
    (error-obj  :initarg :error-obj  :initform nil :accessor error-obj)
    ))
 
+(defun inspect-promise (promise)
+  "Return a detail description of the promise."
+  (format nil (format nil "status: ~d, result: ~d, finishedp: ~d, errorp: ~d, there are ~d callbacks and ~d errbacks, forward to: ~d."
+                      (atomic-place (work-item-status promise))
+                      (work-item-result promise)
+                      (finishedp promise)
+                      (errorp promise)
+                      (queue-count (callbacks promise))
+                      (queue-count (errbacks promise))
+                      (forward promise))))
+
+(defmethod print-object ((promise promise) stream)
+  (print-unreadable-object (promise stream :type t)
+    (format stream (inspect-work promise))))
+
 (defun promisep (promise)
   "Is this a promise?"
   (subtypep (type-of promise) 'promise))
