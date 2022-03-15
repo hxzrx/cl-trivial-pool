@@ -54,25 +54,27 @@
    (errbacks   :initarg :errbacks   :initform (make-queue) :type list :accessor errbacks)
    (forward    :initarg :forward    :initform nil :accessor forward)
    ;; even if the work-item's status is :finished, the promise may not finish yet, and thus finished-p provides further info
-   (finishedp :initarg :finished-p :initform nil :accessor finishedp)
+   (finishedp :initarg :finished-p :initform nil :accessor finishedp) ; T for result's OK, NIL for errored or not finished yet
    (errorp     :initarg :errorp     :initform nil :accessor errorp)
    (error-obj  :initarg :error-obj  :initform nil :accessor error-obj)
    ))
 
 (defun inspect-promise (promise)
   "Return a detail description of the promise."
-  (format nil (format nil "status: ~d, result: ~d, finishedp: ~d, errorp: ~d, there are ~d callbacks and ~d errbacks, forward to: ~d."
+  (format nil (format nil "name: ~d, status: ~d, result: ~d, finishedp: ~d, errorp: ~d~@[, error object: ~d~], there are ~d callbacks and ~d errbacks, forward to: ~d."
+                      (work-item-name promise)
                       (atomic-place (work-item-status promise))
                       (work-item-result promise)
                       (finishedp promise)
                       (errorp promise)
+                      (when (errorp promise) (error-obj promise))
                       (queue-count (callbacks promise))
                       (queue-count (errbacks promise))
                       (forward promise))))
 
 (defmethod print-object ((promise promise) stream)
   (print-unreadable-object (promise stream :type t)
-    (format stream (inspect-work promise))))
+    (format stream (inspect-promise promise))))
 
 (defun promisep (promise)
   "Is this a promise?"
@@ -80,12 +82,14 @@
 
 (defmethod resolve-promise% ((promise promise) &rest args)
   ;; there will be a method combine to set other slot such as status
-  (setf (slot-value promise 'work-item-result) args)
+  (set-result promise args)
+  (set-status promise :finished)
   (unless (promisep (car args))
     (setf (slot-value promise 'finishedp) t))
   promise)
 
 (defmethod resolve-promise% :after ((promise promise) &rest args)
+  ;; 完成回调
   (declare (ignore args))
   (when (finishedp promise)
     (with-slots (callbacks result) promise
@@ -94,11 +98,14 @@
 
 (defmethod reject-promise% ((promise promise) condition)
   ;; method combinitions also
+  (set-result promise condition)
+  (set-status promise :finished)
   (setf (slot-value promise 'error-obj) condition
         (slot-value promise 'errorp) t)
   promise)
 
-(defmethod reject-promise% ((promise promise) condition)
+(defmethod reject-promise% :after ((promise promise) condition)
+  ;; 错误回调
   (with-slots (errbacks error-obj) promise
     ;; ....................
     ))
@@ -202,7 +209,26 @@ Note that the result should be solved first without error signaled (finished-p s
   ;;....
   )
 
-;;;; blackbird中不需要实现的内容:
-#|
-  do-promisify: 将函数的返回值包装成一个合约后返回, 如果返回合约, 就返回这个合约
-|#
+(defun do-promisify (fn &key (pool *default-thread-pool*) (name (string (gensym "FN-PROMISIFIED-"))))
+    "Turns any value or set of values into a promise, unless a promise is passed
+   in which case it is returned."
+  (let ((promise (make-empty-promise pool name)))
+    (with-error-handling
+        (lambda (err)
+          ;;(signal-error promise err)
+          (reject promise err)
+          (do-errbacks promise)
+          (return-from exit-on-error))
+      (let* ((vals (multiple-value-list (funcall fn)))
+             (promise-maybe (car vals)))
+        (if (promisep promise-maybe)
+            (setf promise promise-maybe)
+            (apply 'resolve promise vals))))
+    promise))
+
+(defmacro promisify (&rest forms)
+  ;; (promisify 1)
+  ;; (promisify (+ 1 1))
+  ;; (promisify (error "xx"))
+  `(do-promisify (lambda ()
+                   ,@forms)))
