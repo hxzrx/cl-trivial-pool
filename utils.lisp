@@ -166,6 +166,22 @@ return T if swap success, otherwise return NIL."
      (declare (ignorable ,arg))
      ,@body))
 
+(defmacro make-binary ((arg1 arg2) &body body)
+  "Make up a unary function which accept exactly one argument.
+`arg' is the parameter used within `body'."
+  ;; (funcall (make-binary (a b) (+ a b)) 1 2)
+  `(lambda (,arg1 ,arg2)
+     (declare (ignorable ,arg1 ,arg2))
+     ,@body))
+
+(defmacro make-n-ary ((&rest args) &body body)
+  "Make up a n-ary function which accept any number of arguments.
+`args' is the parameters used within `body'."
+  ;; (funcall (make-n-ary (a b c) (+ a b c)) 1 2 3)
+  `(lambda (,@args)
+     (declare (ignorable ,@args))
+     ,@body))
+
 (defun wrap-bindings (fn &optional bindings &rest args)
   "Wrap bindings to function `fn' and return an lambda that accepts none parameters. `args' is the arguments of function `fn'"
   ;; (funcall (wrap-bindings #'(lambda () (+ a b)) '((a 1) (b 2))))

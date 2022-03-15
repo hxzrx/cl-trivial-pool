@@ -19,6 +19,8 @@
            #:atomic-update
            #:make-nullary
            #:make-unary
+           #:make-binary
+           #:make-n-ary
            #:wrap-bindings
            #:with-error-handling
            #:*debug-on-error*
