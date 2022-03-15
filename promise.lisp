@@ -78,14 +78,19 @@
   "Is this a promise?"
   (subtypep (type-of promise) 'promise))
 
-(defmethod finish-promise% ((promise promise) &rest args)
+(defmethod resolve-promise% ((promise promise) &rest args)
   ;; there will be a method combine to set other slot such as status
   (setf (slot-value promise 'work-item-result) args)
+  (unless (promisep (car args))
+    (setf (slot-value promise 'finishedp) t))
   promise)
 
-(defmethod finish-promise% :after ((promise promise) &rest args)
-  (unless (promisep (car args))
-    (setf (slot-value promise 'finishedp) t)))
+(defmethod resolve-promise% :after ((promise promise) &rest args)
+  (declare (ignore args))
+  (when (finishedp promise)
+    (with-slots (callbacks result) promise
+      ;; ....................
+      )))
 
 (defmethod reject-promise% ((promise promise) condition)
   ;; method combinitions also
@@ -93,11 +98,20 @@
         (slot-value promise 'errorp) t)
   promise)
 
+(defmethod reject-promise% ((promise promise) condition)
+  (with-slots (errbacks error-obj) promise
+    ;; ....................
+    ))
+
 (defmethod resolve ((promise promise) &rest args)
-  (apply #'finish-promise% promise args))
+  (apply #'resolve-promise% promise args))
 
 (defmethod reject ((promise promise) condition)
   (reject-promise% promise condition))
+
+(defun make-empty-promise (&optional (pool *default-thread-pool*) (name (string (gensym "PROMISE-"))))
+  "Return an empty promise with nil fn slot."
+  (change-class (make-work-item :pool pool :name name) 'promise))
 
 (defun make-promise (fn &key (pool *default-thread-pool*)
                           (name (string (gensym "PROMISE-")))
@@ -169,9 +183,26 @@ This is the preferred way to make a promise."
   "Enqueue an callback function to the promise."
   (enqueue callback (slot-value promise 'callbacks)))
 
+(defmethod attach-errback ((promise promise) errback)
+  ;;....
+  )
+
+(defmethod do-attach ((promise promise) callback errback)
+  ;;....
+  )
+
 (defmethod do-callbacks ((promise promise))
   "Invoke each callback of the promise in order.
 Note that the result should be solved first without error signaled (finished-p slot is T). "
   (with-slots (result callbacks) promise
     (loop unless (queue-empty-p callbacks)
             do (apply (dequeue callbacks) result))))
+
+(defmethod do-errbacks ((promise promise))
+  ;;....
+  )
+
+;;;; blackbird中不需要实现的内容:
+#|
+  do-promisify: 将函数的返回值包装成一个合约后返回, 如果返回合约, 就返回这个合约
+|#

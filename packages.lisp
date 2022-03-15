@@ -79,4 +79,5 @@
            #:reject
            #:make-promise
            #:with-promise
+           #:make-empty-promise
            ))
