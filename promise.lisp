@@ -50,27 +50,30 @@
 ;;; promise class definition
 
 (defclass promise (work-item)
-  ((callbacks  :initarg :callbacks  :initform (make-queue) :type list :accessor callbacks)
-   (errbacks   :initarg :errbacks   :initform (make-queue) :type list :accessor errbacks)
-   (forward    :initarg :forward    :initform nil :accessor forward)
+  ((callbacks  :initarg :callbacks  :initform (make-queue) :type list :accessor promise-callbacks)
+   (errbacks   :initarg :errbacks   :initform (make-queue) :type list :accessor promise-errbacks)
+   ;; used when one promise should be fulfillment by another promise, this happens when the work-item-fn return a promise.
+   ;; in a forward chain, this slot shared among the promises, the 0th place keeps the original promise and the 1st keeps the last.
+   (forward    :initarg :forward    :initform (make-array 2 :initial-element nil) :accessor promise-forward)
    ;; even if the work-item's status is :finished, the promise may not finish yet, and thus finished-p provides further info
-   (finishedp :initarg :finished-p :initform nil :accessor finishedp) ; T for result's OK, NIL for errored or not finished yet
-   (errorp     :initarg :errorp     :initform nil :accessor errorp)
-   (error-obj  :initarg :error-obj  :initform nil :accessor error-obj)
+   ;; T for result's OK, NIL for errored or not finished yet
+   (finished-p :initarg :finished-p :initform nil :accessor promise-finished-p)
+   (errored-p  :initarg :errored-p  :initform nil :accessor promise-errored-p)
+   (error-obj  :initarg :error-obj  :initform nil :accessor promise-error-obj)
    ))
 
 (defun inspect-promise (promise)
   "Return a detail description of the promise."
-  (format nil (format nil "name: ~d, status: ~d, result: ~d, finishedp: ~d, errorp: ~d~@[, error object: ~d~], there are ~d callbacks and ~d errbacks, forward to: ~d."
+  (format nil (format nil "name: ~d, status: ~d, result: ~d, finishedp: ~d, errored-p: ~d~@[, error object: ~d~], there are ~d callbacks and ~d errbacks, forward to: ~d."
                       (work-item-name promise)
                       (atomic-place (work-item-status promise))
                       (work-item-result promise)
-                      (finishedp promise)
-                      (errorp promise)
-                      (when (errorp promise) (error-obj promise))
-                      (queue-count (callbacks promise))
-                      (queue-count (errbacks promise))
-                      (forward promise))))
+                      (promise-finished-p promise)
+                      (promise-errored-p promise)
+                      (when (promise-errored-p promise) (promise-error-obj promise))
+                      (queue-count (promise-callbacks promise))
+                      (queue-count (promise-errbacks promise))
+                      (svref (promise-forward promise) 1))))
 
 (defmethod print-object ((promise promise) stream)
   (print-unreadable-object (promise stream :type t)
@@ -85,13 +88,13 @@
   (set-result promise args)
   (set-status promise :finished)
   (unless (promisep (car args))
-    (setf (slot-value promise 'finishedp) t))
+    (setf (slot-value promise 'finished-p) t))
   promise)
 
 (defmethod resolve-promise% :after ((promise promise) &rest args)
-  ;; 完成回调
+  ;; 完成转发链, 回调在主函数中完成.
   (declare (ignore args))
-  (when (finishedp promise)
+  (when (promise-finished-p promise)
     (with-slots (callbacks result) promise
       ;; ....................
       )))
@@ -101,11 +104,11 @@
   (set-result promise condition)
   (set-status promise :finished)
   (setf (slot-value promise 'error-obj) condition
-        (slot-value promise 'errorp) t)
+        (slot-value promise 'errored-p) t)
   promise)
 
 (defmethod reject-promise% :after ((promise promise) condition)
-  ;; 错误回调
+  ;; 完成转发链, 回调要在主函数中完成.
   (with-slots (errbacks error-obj) promise
     ;; ....................
     ))
@@ -160,6 +163,11 @@ by using with-error-handling, errors will be handled with rejecte called.
 
     work))
 
+(defmethod initialize-instance :after ((promise promise) &key &allow-other-keys)
+  (with-slots (forward) promise
+    (setf (svref forward 0) promise)))
+
+
 (defmacro with-promise ((promise &key (pool *default-thread-pool*) bindings name desc) &body body)
   "Make a promise instance by specify it's create-function's body.
 The functions resolve and reject can be called within `body' to resolve or reject the new promise accordingly.
@@ -186,28 +194,59 @@ This is the preferred way to make a promise."
                                               ,bindings))
      work))
 
-(defmethod attach-callback ((promise promise) callback)
-  "Enqueue an callback function to the promise."
-  (enqueue callback (slot-value promise 'callbacks)))
+(defmethod attach-callback ((promise promise) callback-to callback-fn)
+  "Enqueue an callback to the promise.
+A callback is a length-2 list whose car is any object (may be another promise, or even be nil),
+and whose cadr is a function that accepts at least two args:
+   the callbacked object, and the result of the promise. (lambda (obj &rest result) ... )
+If a promise is chained to another promise, the callback should designed to fulfillment the promised chained."
+  (enqueue (list callback-to callback-fn)
+           (slot-value promise 'callbacks)))
 
-(defmethod attach-errback ((promise promise) errback)
-  ;;....
-  )
+(defmethod attach-errback ((promise promise) errback-to errback-fn)
+  "Enqueue an error callback to the promise.
+An error callback is a length-2 list whose car is any object (may be another promise, or even be nil),
+and whose cadr is a function that accepts exactly two args:
+   the callbacked object, and the error-obj of the promise. (lambda (obj err) ... )
+"
+  (enqueue (list errback-to errback-fn)
+           (slot-value promise 'errbacks)))
 
-(defmethod do-attach ((promise promise) callback errback)
-  ;;....
-  )
+(defmethod attach-echoback ((promise promise) echoback-obj callback-fn errback-fn)
+  "In many circumstance, an callback and an errback should be avaliable for the same object in a promise.
+And `attach-echoback' attach both callback and errback to the promise.
+`echoback-obj' is such an object and callback-fn, errback-fn are the echo functions, correspondingly"
+  (attach-callback promise echoback-obj callback-fn)
+  (attach-errback  promise echoback-obj errback-fn))
 
-(defmethod do-callbacks ((promise promise))
-  "Invoke each callback of the promise in order.
-Note that the result should be solved first without error signaled (finished-p slot is T). "
-  (with-slots (result callbacks) promise
-    (loop unless (queue-empty-p callbacks)
-            do (apply (dequeue callbacks) result))))
+(defmethod do-callback ((promise promise) callback)
+  "Deal with one callback"
+  (let ((result (work-item-result promise))
+        (callback-obj (car callback))
+        (callback-fn  (cadr callback)))
+    (apply callback-fn callback-obj result)))
 
-(defmethod do-errbacks ((promise promise))
-  ;;....
-  )
+(defmethod do-errback ((promise promise) errback)
+  "Deal with one errback"
+  (let ((condition (promise-error-obj promise))
+        (errback-obj (car errback))
+        (errback-fn  (cadr errback)))
+    (apply errback-fn errback-obj condition)))
+
+(defmethod run-promise ((promise promise))
+  "Processing all callbacks and errorbacks of the promise in order.
+Note that invoking this method only when the promise has finished (The final result has got out or an error has signaled).
+And Note that the slots of result, status, finished, errored-p, error-obj should have already been set."
+  (if (errored-p promise)
+      (when (promise-errbacks promise)
+        (with-slots (error-obj errbacks) promise
+          (loop unless (queue-empty-p errbacks)
+                  do (do-callback promise (dequeue errbacks)))))
+      (when (promise-finished-p promise)
+        (with-slots (result callbacks) promise
+          (loop unless (queue-empty-p callbacks)
+                  do (do-errback promise (dequeue callbacks))))))
+  promise)
 
 (defun do-promisify (fn &key (pool *default-thread-pool*) (name (string (gensym "FN-PROMISIFIED-"))))
     "Turns any value or set of values into a promise, unless a promise is passed
@@ -232,3 +271,20 @@ Note that the result should be solved first without error signaled (finished-p s
   ;; (promisify (error "xx"))
   `(do-promisify (lambda ()
                    ,@forms)))
+
+(defmethod find-forward ((promise promise))
+  "Check if this promise has been forwarded.
+Return nil if it has no forward promise, else return the forwarded promise object."
+  (svref (promise-forward promise) 1))
+
+#+:ignore
+(defun lookup-forwarded-promise (promise)
+    "This function follows forwarded promises until it finds the last in the chain of forwarding."
+  ;; 找到并返回合约转发链最底部的合约
+  (when (promisep promise)
+    (loop while (promise-forward promise) do
+      (setf promise (promise-forward promise))))
+  promise)
+
+;; 处理转发链, finished时, 在resolve的:after中, 查看是否有转发,
+;; 如果有, 对转发再调用一次resolve函数, 如果是错误, 就调用reject函数.
