@@ -63,6 +63,7 @@
            #:add-work
            #:add-works
            #:get-result
+           #:set-result
            #:get-status
            #:set-status
            #:cancel-work

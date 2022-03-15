@@ -117,6 +117,10 @@
   "Return the status of an work-item instance."
   (atomic-place (work-item-status work)))
 
+(defmethod set-status ((work work-item) new-status)
+  "Set the status slot of work to a new value"
+  (atomic-set (atomic-place (work-item-status work)) new-status))
+
 (defmethod get-result ((work work-item) &optional (waitp t) (timeout nil))
   "Get the result of this `work', returns two values:
 The second value denotes if the work has finished.
@@ -145,6 +149,17 @@ or nil if the work has not finished."
      (values nil nil))
     (t (warn "The result of this work is abnormal, the status is ~s" (get-status work))
      (values nil nil))))
+
+(defmethod set-result ((work work-item) result)
+  "Set the result of `work' directly and return the work instance itself."
+  (if (listp result)
+      (setf (work-item-result work) result)
+      (setf (work-item-result work) (list result)))
+  work)
+
+(defmethod set-result :after ((work work-item) result)
+  "Set the status slot with :finished"
+  (set-status work :finished))
 
 (defun thread-pool-main (pool)
   (let* ((self (bt:current-thread)))
