@@ -139,6 +139,13 @@ return T if swap success, otherwise return NIL."
            :until (compare-and-swap ,place ,old-value ,new-value)
            :finally (return ,new-value))))
 
+(defmacro atomic-set (place new-value)
+  "Atomic update the `place' with `new-value'"
+  ;; (atomic-set (atomic-place (make-atomic 0)) 100)
+  `(atomic-update ,place
+                  #'(lambda (x)
+                      (declare (ignore x))
+                      ,new-value)))
 
 ;; bordeaux-threads' condition-wait will always return T whether timeout or not,
 ;; but get-result and thread-pool-main rely on the returned value of condition-wait,

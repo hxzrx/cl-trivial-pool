@@ -17,6 +17,7 @@
            #:atomic-incf
            #:atomic-decf
            #:atomic-update
+           #:atomic-set
            #:make-nullary
            #:make-unary
            #:make-binary
@@ -63,6 +64,7 @@
            #:add-works
            #:get-result
            #:get-status
+           #:set-status
            #:cancel-work
            #:flush-pool
            #:shutdown-pool
