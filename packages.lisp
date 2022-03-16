@@ -18,13 +18,15 @@
            #:atomic-decf
            #:atomic-update
            #:atomic-set
+           #:destroy-thread-forced
            #:make-nullary
            #:make-unary
            #:make-binary
            #:make-n-ary
            #:wrap-bindings
            #:with-error-handling
-           #:*debug-on-error*
+           #:*debug-pool-on-error*
+           #:*debug-promise-on-error*
            #:*promise*
            #:exit-on-error
            ))

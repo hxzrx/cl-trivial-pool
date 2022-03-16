@@ -1,4 +1,4 @@
-(in-package :cl-trivial-pool)
+1(in-package :cl-trivial-pool)
 
 (defstruct (thread-pool (:constructor make-thread-pool (&key (name (string (gensym "THREAD-POOL-")))
                                                           (max-worker-num *default-worker-num*)
@@ -12,7 +12,7 @@
   (cvar              (bt:make-condition-variable :name "THREAD-POOL-CVAR"))
   (backlog           (make-queue))
   (max-worker-num    *default-worker-num* :type fixnum)       ; num of worker threads
-  (thread-table      (make-hash) :type hash-table) ; may have some dead threads due to gc
+  (thread-table      (make-hash)    :type hash-table)         ; may have some dead threads due to gc
   (working-num       0              :type (unsigned-byte 64)) ; num of current busy working threads
   (idle-num          0              :type (unsigned-byte 64)) ; num of current idle threads, total = working + idle
   (shutdown-p        nil)
@@ -147,7 +147,7 @@ or nil if the work has not finished."
                (values nil nil)))))
     (:created (warn "The work has not been added to a thread pool.")
      (values nil nil))
-    (t (warn "The result of this work is abnormal, the status is ~s" (get-status work))
+    (t (warn "The result of this work is abnormal, the status is ~s." (get-status work))
      (values nil nil))))
 
 (defmethod set-result ((work work-item) result)
@@ -204,15 +204,26 @@ or nil if the work has not finished."
                                          (return)))))))))
             (unwind-protect-unwind-only
                 (catch 'terminate-work
-                  (let ((result (multiple-value-list (funcall (work-item-fn work)))))
-                    (setf (work-item-result work) result)
-                    (when (eq :running (get-status work)) ; the status may be modified during fn's executing
-                      (set-status work :finished))
-                    (bt:condition-notify (work-item-cvar work))))
+                  (let ((last-err nil))
+                    (handler-bind ((error (lambda (err)
+                                            (setf (atomic-place (work-item-status work)) :aborted)
+                                            (setf last-err err)
+                                            (bt:condition-notify (work-item-cvar work))
+                                            (unless *debug-pool-on-error*
+                                              (throw 'terminate-work err)))))
+                      (restart-case
+                          (let ((result (multiple-value-list (funcall (work-item-fn work)))))
+                            (setf (work-item-result work) result)
+                            (when (eq :running (get-status work)) ; the status may be modified during fn's executing
+                              (set-status work :finished))
+                            (bt:condition-notify (work-item-cvar work)))
+                        (default-restart ()
+                          :report (lambda (s) (format s "~&An error <~s> occured when executing work!~%" last-err))
+                          (format *debug-io* "~&Error: <~s>, work: ~d~%" last-err work))))))
               (atomic-decf (thread-pool-working-num pool))
               (setf (atomic-place (work-item-status work)) :aborted)
               (bt:condition-notify (work-item-cvar work))
-              (bt:destroy-thread self))))))
+              (destroy-thread-forced self))))))
 
 (defun add-thread (pool)
   "Add a thread to a thread pool."
@@ -276,10 +287,12 @@ Returns a list of the work items added."
   "Enqueue a work-item to a thread-pool."
   (declare (ignore priority))
   (unless (eq (work-item-pool work) pool)
-    (setf (work-item-pool work) pool)) ; this will not likely compete among threads
+    (setf (work-item-pool work) pool)) ; this will not likely to compete among threads
   (with-slots (backlog max-worker-num working-num idle-num) pool
     (when (thread-pool-shutdown-p pool)
-      (error "Attempted to add work item to a shut down thread pool ~S" pool))
+      (error "Attempted to add work item to a shutted down thread pool ~S" pool))
+    (unless (eq :created (get-status work))
+      (warn "Attempted to add a '~s' work item to a thread pool ~d." (get-status work) work))
     (setf (atomic-place (work-item-status work)) :ready)
     (enqueue work backlog)
     (when (and (= (thread-pool-idle-num pool) 0)

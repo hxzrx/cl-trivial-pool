@@ -161,6 +161,13 @@ return T if swap success, otherwise return NIL."
       (bt:acquire-lock lock t))
     success))
 
+(defun destroy-thread-forced (thread)
+  "bt:destroy-thread will signal error if `thread' is the current thread.
+this function will try to destroy the thread anyhow."
+  #+sbcl (sb-thread:terminate-thread thread)
+  #+ccl (ccl:process-kill thread)
+  (or #-sbcl #-ccl (bt:destroy-thread thread)))
+
 (defmacro make-nullary (() &body body)
   "Make up a nullary function which accept none args."
   `(lambda () ,@body))
@@ -206,7 +213,9 @@ return T if swap success, otherwise return NIL."
           (lambda () (apply fn args))
           fn)))
 
-(defvar *debug-on-error* nil
+(defvar *debug-pool-on-error* nil)
+
+(defvar *debug-promise-on-error* nil
   "If t, will not catch errors passing through the handlers and will let them bubble up to the debugger.")
 
 #+:ignore
