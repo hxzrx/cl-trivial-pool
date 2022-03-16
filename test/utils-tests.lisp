@@ -23,7 +23,6 @@
     (tpool-utils:enqueue 2 queue)
     (is = 1 (tpool-utils:peek-queue queue))))
 
-
 (define-test flush-queue :parent utils
   (let ((queue (tpool-utils:make-queue)))
     (true (tpool-utils:queue-empty-p queue))
