@@ -52,7 +52,7 @@
    (status   :initarg :status :initform (make-atomic :created)    :accessor work-item-status)
    (lock     :initarg :lock   :initform (bt:make-lock)               :accessor work-item-lock)
    (cvar     :initarg :cvar   :initform (bt:make-condition-variable) :accessor work-item-cvar)
-   (desc     :initarg :desc   :accessor work-item-desc)))
+   (desc     :initarg :desc   :initform nil :accessor work-item-desc)))
 
 (defun inspect-work (work &optional (simple-mode t))
   "Return a detail description of the work item."
@@ -79,11 +79,11 @@
                          bindings desc)
   (make-instance 'work-item
                  :fn (if bindings
-                          (let ((vars (mapcar #'first bindings))
-                                (vals (mapcar #'second bindings)))
-                            (lambda () (progv vars vals
-                                         (funcall function))))
-                          function)
+                         (let ((vars (mapcar #'first bindings))
+                               (vals (mapcar #'second bindings)))
+                           (lambda () (progv vars vals
+                                        (funcall function))))
+                         function)
                  :pool pool
                  :status (make-atomic status)
                  :name name
@@ -203,16 +203,16 @@ or nil if the work has not finished."
                                                                                        internal-time-units-per-second))
                                          (return)))))))))
             (unwind-protect-unwind-only
-             (catch 'terminate-work
-               (let ((result (multiple-value-list (funcall (work-item-fn work)))))
-                 (setf (work-item-result work) result)
-                 (when (eq :running (work-item-status work)) ; the status may be modified during fn's executing
-                   (atomic-place (work-item-status work)) :finished)
-                 (bt:condition-notify (work-item-cvar work))))
-             (atomic-decf (thread-pool-working-num pool))
-             (setf (atomic-place (work-item-status work)) :aborted)
-             (bt:condition-notify (work-item-cvar work))
-             (bt:destroy-thread self))))))
+                (catch 'terminate-work
+                  (let ((result (multiple-value-list (funcall (work-item-fn work)))))
+                    (setf (work-item-result work) result)
+                    (when (eq :running (get-status work)) ; the status may be modified during fn's executing
+                      (set-status work :finished))
+                    (bt:condition-notify (work-item-cvar work))))
+              (atomic-decf (thread-pool-working-num pool))
+              (setf (atomic-place (work-item-status work)) :aborted)
+              (bt:condition-notify (work-item-cvar work))
+              (bt:destroy-thread self))))))
 
 (defun add-thread (pool)
   "Add a thread to a thread pool."
