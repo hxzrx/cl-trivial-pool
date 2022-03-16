@@ -96,14 +96,16 @@
   (svref (promise-forward promise) 1))
 
 (defmethod resolve-promise% ((promise promise) &rest args)
-  "Resolve a promise with a final value, or another promise."
+  "Resolve a promise with a final value, or another promise.
+If the promise is resolved with a promise, set the later to the forward."
   (set-result promise args)
   (set-status promise :finished)
   (if (promisep (car args))
       (let ((new-promise (car args)))
         (setf (svref (promise-forward promise) 1) new-promise)
         (setf (slot-value new-promise 'forward) (promise-forward promise))
-        (run-promise new-promise))  ; can send it to the pool either
+        (set-status new-promise :created) ; this setf deal with a promise fulfillment with itself
+        (run-promise new-promise))  ; can send it to the pool either, and if sent, should change its status to :created
       (setf (slot-value promise 'finished-p) t))
   promise)
 
@@ -123,6 +125,7 @@
   (set-status promise :finished)
   (setf (slot-value promise 'error-obj) condition
         (slot-value promise 'errored-p) t)
+
   promise)
 
 (defmethod reject-promise% :after ((promise promise) condition)
@@ -135,11 +138,16 @@
     (reject-promise% (promise-chain-head promise) condition)))   ; and reject the head promise again.
 
 (defmethod resolve ((promise promise) &rest args)
-  "Resolve a promise with the final value, or another promise, and support resolving the promise with itself."
+  "Resolve a promise with the final value, or another promise, and support resolving the promise with itself.
+Resolve is top to bottom, then bottom to top.
+The intermediate of the forward chain can be passed as I considered."
   (apply #'resolve-promise% promise args))
 
 (defmethod reject ((promise promise) condition)
-  "Reject a promise with a condition instance."
+  "Reject a promise with a condition instance.
+Reject is bottom to top, since the forwarded promise is only something that takes place of the head promise's result in the future,
+If an error' signaled in a promise, it cannot propagate to the bottom.
+However, if an error's signaled, it should propagate to the top to reject the head promise."
   (reject-promise% promise condition))
 
 (defun make-empty-promise (&optional (pool *default-thread-pool*) (name (string (gensym "PROMISE-"))))
@@ -276,10 +284,23 @@ And `attach-echoback' attach both callback and errback to the promise.
                      (apply errback-fn errback-obj condition)))))))
   promise)
 
+(defmethod do-abnormal-status ((promise promise) status)
+  "Deal with work-item's statuses"
+  ;; :created :running :aborted :ready :finished :cancelled :rejected
+  (case status
+    (:aborted (reject promise (make-instance 'promise-error :value :aborted :reason "Aborted by thread pool.")))
+    (:rejected (reject promise (make-instance 'promise-error :value :rejected :reason "Rejected by thread pool.")))
+    (:cancelled (reject promise (make-instance 'promise-error :value :cancelled :reason "Cancelled by thread pool.")))
+    (otherwise t)))
+
 (defmethod run-promise ((promise promise))
-  "Processing all callbacks and errorbacks of the promise in order.
+  "Check to run first, then process all callbacks and errorbacks of the promise in order.
 Note that invoking this method only when the promise has finished (The final result has got out or an error has signaled).
 And Note that the slots of result, status, finished, errored-p, error-obj should have already been set."
+  (let ((status (get-status promise)))
+    (when (eq status :created)
+      (funcall (work-item-fn promise))))
+  (do-abnormal-status promise (get-status promise))
   (if (promise-errored-p promise)
       (when (promise-errbacks promise)
         (with-slots (error-obj errbacks) promise
@@ -320,7 +341,3 @@ And Note that the slots of result, status, finished, errored-p, error-obj should
 Return nil if it has no forward promise, else return the forwarded promise object.
 Note that promises in a chain shared one forward, the intermediate promise takes no effect in fact."
   (svref (promise-forward promise) 1))
-
-
-;; 处理转发链, finished时, 在resolve的:after中, 查看是否有转发,
-;; 如果有, 对转发再调用一次resolve函数, 如果是错误, 就调用reject函数.
