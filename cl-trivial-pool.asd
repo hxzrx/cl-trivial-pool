@@ -22,5 +22,10 @@
   :serial t
   :depends-on (:cl-trivial-pool
                :parachute)
-  :components ((:file "tests"))
+  :components ((:module "test"
+                :serial t
+                :components ((:file "packages")
+                             (:file "utils-tests")
+                             (:file "thread-pool-tests")
+                             (:file "promise-tests"))))
   :perform (test-op (o s) (uiop:symbol-call :parachute :test :cl-trivial-pool-tests)))
