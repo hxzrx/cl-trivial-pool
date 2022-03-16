@@ -62,6 +62,10 @@
    (error-obj  :initarg :error-obj  :initform nil :accessor promise-error-obj)
    ))
 
+(defmethod initialize-instance :after ((promise promise) &key &allow-other-keys)
+  (with-slots (forward) promise
+    (setf (svref forward 0) promise)))
+
 (defun inspect-promise (promise)
   "Return a detail description of the promise."
   (format nil (format nil "name: ~d, status: ~d, result: ~d, finishedp: ~d, errored-p: ~d~@[, error object: ~d~], there are ~d callbacks and ~d errbacks, forward to: ~d."
@@ -83,21 +87,35 @@
   "Is this a promise?"
   (subtypep (type-of promise) 'promise))
 
+(defmethod promise-chain-head ((promise promise))
+  "Return the first promise of a promise chain."
+  (svref (promise-forward promise) 0))
+
+(defmethod promise-chain-tail ((promise promise))
+  "Return the last promise of a promise chain."
+  (svref (promise-forward promise) 1))
+
 (defmethod resolve-promise% ((promise promise) &rest args)
-  ;; there will be a method combine to set other slot such as status
+  "Resolve a promise with a final value, or another promise."
   (set-result promise args)
   (set-status promise :finished)
-  (unless (promisep (car args))
-    (setf (slot-value promise 'finished-p) t))
+  (if (promisep (car args))
+      (let ((new-promise (car args)))
+        (setf (svref (promise-forward promise) 1) new-promise)
+        (setf (slot-value new-promise 'forward) (promise-forward promise))
+        (run-promise new-promise))  ; can send it to the pool either
+      (setf (slot-value promise 'finished-p) t))
   promise)
 
 (defmethod resolve-promise% :after ((promise promise) &rest args)
-  ;; 完成转发链, 回调在主函数中完成.
-  (declare (ignore args))
-  (when (promise-finished-p promise)
-    (with-slots (callbacks result) promise
-      ;; ....................
-      )))
+  "Deal with the callbacks, and, if this promise is the tail of the chain, resolve the head."
+  (do-callbacks promise)
+  ;; eq denotes that it's a forwarded promise,
+  ;; the head is not compared, for the sake that one might resolve a promise with itself (may be useless)
+  (when (and (eq promise (promise-chain-tail promise))
+             (null (eq (promise-chain-head promise) (promise-chain-tail promise)))) ; get rid of repeat solving
+    (resolve-promise% (promise-chain-head promise) args)))   ; and resolve the head promise again.
+
 
 (defmethod reject-promise% ((promise promise) condition)
   ;; method combinitions also
@@ -108,15 +126,20 @@
   promise)
 
 (defmethod reject-promise% :after ((promise promise) condition)
-  ;; 完成转发链, 回调要在主函数中完成.
-  (with-slots (errbacks error-obj) promise
-    ;; ....................
-    ))
+  "Deal with the errbacks, and, if this promise is the tail of the chain, reject the head."
+  (do-errbacks promise)
+  ;; eq denotes that it's a forwarded promise,
+  ;; the head is not compared, for the sake that one might reject a promise with itself (may be useless)
+  (when (and (eq promise (promise-chain-tail promise))
+             (null (eq (promise-chain-head promise) (promise-chain-tail promise)))) ; get rid of repeat solving
+    (reject-promise% (promise-chain-head promise) condition)))   ; and reject the head promise again.
 
 (defmethod resolve ((promise promise) &rest args)
+  "Resolve a promise with the final value, or another promise, and support resolving the promise with itself."
   (apply #'resolve-promise% promise args))
 
 (defmethod reject ((promise promise) condition)
+  "Reject a promise with a condition instance."
   (reject-promise% promise condition))
 
 (defun make-empty-promise (&optional (pool *default-thread-pool*) (name (string (gensym "PROMISE-"))))
@@ -150,7 +173,6 @@ by using with-error-handling, errors will be handled with rejecte called.
                                              :name name
                                              :desc desc)
                              'promise)))
-    ;;(setf (work-item-fn work) (wrap-bindings fn bindings work))
     (setf (work-item-fn work) (wrap-bindings
                                (lambda ()
                                 (let ((*promise* work))
@@ -162,11 +184,6 @@ by using with-error-handling, errors will be handled with rejecte called.
                                bindings))
 
     work))
-
-(defmethod initialize-instance :after ((promise promise) &key &allow-other-keys)
-  (with-slots (forward) promise
-    (setf (svref forward 0) promise)))
-
 
 (defmacro with-promise ((promise &key (pool *default-thread-pool*) bindings name desc) &body body)
   "Make a promise instance by specify it's create-function's body.
@@ -219,38 +236,63 @@ And `attach-echoback' attach both callback and errback to the promise.
   (attach-callback promise echoback-obj callback-fn)
   (attach-errback  promise echoback-obj errback-fn))
 
-(defmethod do-callback ((promise promise) callback)
+(defmethod do-callback% ((promise promise) callback)
   "Deal with one callback"
   (let ((result (work-item-result promise))
         (callback-obj (car callback))
         (callback-fn  (cadr callback)))
     (apply callback-fn callback-obj result)))
 
-(defmethod do-errback ((promise promise) errback)
+(defmethod do-callbacks ((promise promise))
+  "Deal with all callbacks"
+  (when (promise-finished-p promise)
+    (let ((callbacks (promise-callbacks promise)))
+      (unless (queue-empty-p callbacks)
+        (let ((result (work-item-result promise)))
+          (loop unless (queue-empty-p callbacks)
+                do (let* ((callback (dequeue callbacks))
+                          (callback-obj (car callback))
+                          (callback-fn  (cadr callback)))
+                     (apply callback-fn callback-obj result)))))))
+  promise)
+
+(defmethod do-errback% ((promise promise) errback)
   "Deal with one errback"
   (let ((condition (promise-error-obj promise))
         (errback-obj (car errback))
         (errback-fn  (cadr errback)))
     (apply errback-fn errback-obj condition)))
 
+(defmethod do-errbacks ((promise promise))
+  "Deal with all errbacks"
+  (when (promise-errored-p promise)
+    (let ((errbacks (promise-errbacks promise)))
+      (unless (queue-empty-p errbacks)
+        (let ((condition (promise-error-obj promise)))
+          (loop unless (queue-empty-p errbacks)
+                do (let* ((errback (dequeue errbacks))
+                          (errback-obj (car errback))
+                          (errback-fn  (cadr errback)))
+                     (apply errback-fn errback-obj condition)))))))
+  promise)
+
 (defmethod run-promise ((promise promise))
   "Processing all callbacks and errorbacks of the promise in order.
 Note that invoking this method only when the promise has finished (The final result has got out or an error has signaled).
 And Note that the slots of result, status, finished, errored-p, error-obj should have already been set."
-  (if (errored-p promise)
+  (if (promise-errored-p promise)
       (when (promise-errbacks promise)
         (with-slots (error-obj errbacks) promise
           (loop unless (queue-empty-p errbacks)
-                  do (do-callback promise (dequeue errbacks)))))
+                  do (do-errback% promise (dequeue errbacks)))))
       (when (promise-finished-p promise)
         (with-slots (result callbacks) promise
           (loop unless (queue-empty-p callbacks)
-                  do (do-errback promise (dequeue callbacks))))))
+                  do (do-callback% promise (dequeue callbacks))))))
   promise)
 
-(defun do-promisify (fn &key (pool *default-thread-pool*) (name (string (gensym "FN-PROMISIFIED-"))))
-    "Turns any value or set of values into a promise, unless a promise is passed
-   in which case it is returned."
+(defun promisify-fn (fn &key (pool *default-thread-pool*) (name (string (gensym "FN-PROMISIFIED-"))))
+  "Turns any value or set of values into a promise, unless a promise is passed in which case it is returned."
   (let ((promise (make-empty-promise pool name)))
     (with-error-handling
         (lambda (err)
@@ -265,26 +307,20 @@ And Note that the slots of result, status, finished, errored-p, error-obj should
             (apply 'resolve promise vals))))
     promise))
 
-(defmacro promisify (&rest forms)
+(defmacro promisify-form (&rest forms)
+  "Turns the forms into a nullary function, the encapsulate it with promisify-fn and finally return a promise."
   ;; (promisify 1)
   ;; (promisify (+ 1 1))
   ;; (promisify (error "xx"))
-  `(do-promisify (lambda ()
+  `(promisify-fn (lambda ()
                    ,@forms)))
 
 (defmethod find-forward ((promise promise))
   "Check if this promise has been forwarded.
-Return nil if it has no forward promise, else return the forwarded promise object."
+Return nil if it has no forward promise, else return the forwarded promise object.
+Note that promises in a chain shared one forward, the intermediate promise takes no effect in fact."
   (svref (promise-forward promise) 1))
 
-#+:ignore
-(defun lookup-forwarded-promise (promise)
-    "This function follows forwarded promises until it finds the last in the chain of forwarding."
-  ;; 找到并返回合约转发链最底部的合约
-  (when (promisep promise)
-    (loop while (promise-forward promise) do
-      (setf promise (promise-forward promise))))
-  promise)
 
 ;; 处理转发链, finished时, 在resolve的:after中, 查看是否有转发,
 ;; 如果有, 对转发再调用一次resolve函数, 如果是错误, 就调用reject函数.
