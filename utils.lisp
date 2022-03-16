@@ -1,4 +1,4 @@
-(in-package :tpool-utils)
+ (in-package :tpool-utils)
 
 (defvar *default-worker-num* (max 4 (cpus:get-number-of-processors)))
 
@@ -238,12 +238,12 @@ return T if swap success, otherwise return NIL."
          (handler-bind
              ((error (lambda (err)
                        (setf ,last-err err)
-                       (tpool:set-status *promise* :errored)
+                       (cl-trivial-pool:set-status *promise* :errored)
                        (unless *debug-on-error*
                          (funcall ,error-handler err)))))
            (restart-case
                (progn ,@body)
              (reject-promise ()
-               :report (lambda (s) (format s "Reject the promise ~a" *promise*))
-               (format *debug-io* "~&The promise was rejected: ~d~%" *promise*)
+               :report (lambda (s) (format s "~&Reject the promise ~a.~%" *promise*))
+               (format *debug-io* "~&The promise was rejected: ~d.~%" *promise*)
                (funcall ,error-handler ,last-err))))))))

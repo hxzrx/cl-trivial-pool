@@ -86,17 +86,17 @@
            #:promise
            #:inspect-promise
            #:promisep
-           #:resolve
-           #:reject
            #:make-empty-promise
            #:make-promise
            #:with-promise
            #:attach-callback
            #:attach-errback
            #:attach-echoback
-           #:do-callbacks
-           #:do-errbacks
-           #:run-promise
+           ;;#:do-callbacks
+           ;;#:do-errbacks
+           ;;#:run-promise
+           #:resolve
+           #:reject
            #:promisify-fn
            #:promisify-form
            ))
