@@ -10,12 +10,7 @@
 ;;;;    Although this callback can be invoked within the work-item's workload function,
 ;;;;    in an async context, this is inevitable if a promise is finished by another promise.
 ;;;;
-;;;; promise可以看作是work的推广, work是promise的一种特殊形式.
-;;;; 其区别主要在于, work只是单纯的执行一个计算, 若不考虑排队事件, 可以认为是瞬间执行的呃.
-;;;; 而promise是在将来某个时间点才能完成, 其完成还依赖于其它条件, 其完成结果可能是另一个promise,
-;;;; 因此需要回调, 底层promise彻底完成后沿着回调链逐级回调到最初的promise, 沿路所有promise都会得到解决.
-;;;; 另一个区别是, promise包含了完成事件的回调,
-;;;; 当得到解决时通知所关联的其它事件, 这个事件不一定是关联到promise, 可能仅仅是一般简单的调用某个函数.
+
 
 (in-package :promise)
 
@@ -319,13 +314,14 @@ If the promise is resolved with a promise, set the later to the forward."
   promise)
 
 (defmethod resolve-promise% :after ((promise promise) &rest args)
-  "Deal with the callbacks, and, if this promise is the tail of the chain, resolve the head."
+  "Deal with the callbacks, and, if this promise is the tail of the chain, try to resolve the head."
   (do-callbacks promise)
   ;; eq denotes that it's a forwarded promise,
   ;; the head is not compared, for the sake that one might resolve a promise with itself (may be useless)
-  (when (and (eq promise (promise-chain-tail promise))
+  (when (and (null (promisep (car args)))
+             (eq promise (promise-chain-tail promise))
              (null (eq (promise-chain-head promise) (promise-chain-tail promise)))) ; get rid of repeat solving
-    (resolve-promise% (promise-chain-head promise) args)))   ; and resolve the head promise again.
+    (apply #'resolve (promise-chain-head promise) args)))   ; and resolve the head promise again.
 
 (defmethod reject-promise% ((promise promise) condition)
   "Reject a promise with a condition, set related slots, do the errbacks."
@@ -349,7 +345,8 @@ If the promise is resolved with a promise, set the later to the forward."
   "Resolve a promise with the final value, or another promise, and support resolving the promise with itself.
 Resolve is top to bottom, then bottom to top.
 The intermediate of the forward chain can be passed as I considered."
-  (apply #'resolve-promise% promise args))
+  (apply #'resolve-promise% promise args)
+  promise)
 
 (defmethod reject ((promise promise) condition)
   "Reject a promise with a condition instance.
@@ -357,7 +354,15 @@ Reject is bottom to top, since the forwarded promise is only something that take
 If an error' signaled in a promise, it cannot propagate to the bottom.
 However, if an error's signaled, it should propagate to the top to reject the head promise."
   (unless (promise-rejected-p promise)
-    (reject-promise% promise condition)))
+    (reject-promise% promise condition))
+  promise)
+
+(defmethod get-result ((promise promise) &optional (waitp t) (timeout nil))
+  "Get the result of a promise."
+  (let ((result (multiple-value-list (call-next-method waitp timeout))))
+    (if (eq :errored (get-status promise)) ; this status can be set only in the body of with-error-handling
+        (values nil nil)
+        (values (car result) (cadr result)))))
 
 
 ;;; some utils
@@ -384,6 +389,7 @@ However, if an error's signaled, it should propagate to the top to reject the he
   ;; (promisify (error "xx"))
   `(promisify-fn (lambda ()
                    ,@forms)))
+
 
 #+:ignore
 (defmethod find-forward ((promise promise)) ; not been used

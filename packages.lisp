@@ -97,6 +97,7 @@
            ;;#:run-promise
            #:resolve
            #:reject
+           #:get-result
            #:promisify-fn
            #:promisify-form
            ))
