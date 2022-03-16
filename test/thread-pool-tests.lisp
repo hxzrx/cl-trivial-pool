@@ -50,23 +50,23 @@
 
 (define-test add-work :parent tpool
   (let* ((pool (tpool:make-thread-pool))
-         (work0 (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))) ; to test in default pool
-         (work1 (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))) ; to test in local pool, will be warned
-         (work2 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3) ; all test in local pool
+         (work0 (tpool:make-work-item :name "work0" :function #'(lambda () (+ 1 2 3)))) ; to test in default pool
+         (work1 (tpool:make-work-item :name "work1" :function #'(lambda () (+ 1 2 3)))) ; to test in local pool, will be warned
+         (work2 (tpool:make-work-item :name "work2" :function (make-parameterless-fun + 1 2 3) ; all test in local pool
                                       :pool pool))
-         (work3 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work3 (tpool:make-work-item :name "work3" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool))
-         (work4 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work4 (tpool:make-work-item :name "work4" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool))
-         (work5 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work5 (tpool:make-work-item :name "work5" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool))
-         (work6 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work6 (tpool:make-work-item :name "work6" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool))
-         (work7 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work7 (tpool:make-work-item :name "work7" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool))
-         (work8 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work8 (tpool:make-work-item :name "work8" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool))
-         (work9 (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
+         (work9 (tpool:make-work-item :name "work9" :function (make-parameterless-fun + 1 2 3)
                                       :pool pool)))
     (is eq :created (tpool:get-status work0))
     (is eq :created (tpool:get-status work1))
