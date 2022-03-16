@@ -238,6 +238,7 @@ return T if swap success, otherwise return NIL."
          (handler-bind
              ((error (lambda (err)
                        (setf ,last-err err)
+                       (tpool:set-status *promise* :errored)
                        (unless *debug-on-error*
                          (funcall ,error-handler err)))))
            (restart-case
