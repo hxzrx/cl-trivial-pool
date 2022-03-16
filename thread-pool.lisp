@@ -205,8 +205,9 @@ or nil if the work has not finished."
             (unwind-protect-unwind-only
              (catch 'terminate-work
                (let ((result (multiple-value-list (funcall (work-item-fn work)))))
-                 (setf (work-item-result work) result
-                       (atomic-place (work-item-status work)) :finished)
+                 (setf (work-item-result work) result)
+                 (when (eq :running (work-item-status work)) ; the status may be modified during fn's executing
+                   (atomic-place (work-item-status work)) :finished)
                  (bt:condition-notify (work-item-cvar work))))
              (atomic-decf (thread-pool-working-num pool))
              (setf (atomic-place (work-item-status work)) :aborted)
