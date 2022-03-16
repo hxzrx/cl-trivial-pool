@@ -22,20 +22,35 @@
 ;;; conditions definition
 
 (define-condition promise-condition (condition)
-  ((reason :initarg :reason :initform nil :accessor reason)
-   (value  :initarg :value  :initform nil :accessor value))
+  ((data   :initarg :data   :initform nil :accessor promise-condition-value)
+   (reason :initarg :reason :initform nil :accessor promise-condition-reason))
   (:report (lambda (err stream)
-             (format stream "The promise was signaled a condition <~d> with value <~s>" (reason err) (value err)))))
+             (format stream "The promise was signaled a condition <~d> with data <~s>"
+                     (promise-condition-reason err)
+                     (promise-condition-value err)))))
 
 (define-condition promise-warning (warning promise-condition)
   ()
   (:report (lambda (err stream)
-             (format stream "The promise was signaled an warning for an warn <~d> with value <~s>" (reason err) (value err)))))
+             (format stream "The promise was signaled an warning for an warn <~d> with data <~s>"
+                     (promise-condition-reason err)
+                     (promise-condition-value err)))))
 
 (define-condition promise-error (error promise-condition)
   ()
   (:report (lambda (err stream)
-             (format stream "The promise was signaled an error <~d> with value <~s>" (reason err) (value err)))))
+             (format stream "The promise was signaled an error <~d> with data <~s>"
+                     (promise-condition-reason err)
+                     (promise-condition-value err)))))
+
+(defun make-promise-condition (data reason)
+  (make-instance 'promise-condition :data data :reason reason))
+
+(defun make-promise-warning (data reason)
+  (make-instance 'promise-warning :data data :reason reason))
+
+(defun make-promise-error (data reason)
+  (make-instance 'promise-error :data data :reason reason))
 
 (defun signal-promise-condition (reason value)
   (signal 'promise-condition :reason reason :value value))
@@ -125,7 +140,6 @@ If the promise is resolved with a promise, set the later to the forward."
   (set-status promise :finished)
   (setf (slot-value promise 'error-obj) condition
         (slot-value promise 'errored-p) t)
-
   promise)
 
 (defmethod reject-promise% :after ((promise promise) condition)
@@ -317,7 +331,6 @@ And Note that the slots of result, status, finished, errored-p, error-obj should
   (let ((promise (make-empty-promise pool name)))
     (with-error-handling
         (lambda (err)
-          ;;(signal-error promise err)
           (reject promise err)
           (do-errbacks promise)
           (return-from exit-on-error))

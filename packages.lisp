@@ -74,7 +74,13 @@
 
 (defpackage #:promise
   (:use #:cl #:tpool-utils #:cl-trivial-pool)
-  (:export #:signal-promise-error
+  (:export #:promise-condition
+           #:promise-warning
+           #:promise-error
+           #:make-promise-condition
+           #:make-promise-warning
+           #:make-promise-error
+           #:signal-promise-error
            #:signal-promise-warning
            #:signal-promise-condition
            #:promise
@@ -82,7 +88,15 @@
            #:promisep
            #:resolve
            #:reject
+           #:make-empty-promise
            #:make-promise
            #:with-promise
-           #:make-empty-promise
+           #:attach-callback
+           #:attach-errback
+           #:attach-echoback
+           #:do-callbacks
+           #:do-errbacks
+           #:run-promise
+           #:promisify-fn
+           #:promisify-form
            ))
