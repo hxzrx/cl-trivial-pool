@@ -166,7 +166,7 @@ return T if swap success, otherwise return NIL."
 this function will try to destroy the thread anyhow."
   #+sbcl (sb-thread:terminate-thread thread)
   #+ccl (ccl:process-kill thread)
-  (or #-sbcl #-ccl (bt:destroy-thread thread)))
+  #-(or sbcl ccl) (bt:destroy-thread thread))
 
 (defmacro make-nullary (() &body body)
   "Make up a nullary function which accept none args."
