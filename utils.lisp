@@ -40,6 +40,7 @@
 (defun make-queue (&optional (init-length 100) (unbound t))
   "Return an unbound"
   (declare (ignore unbound))
+  #+sbcl(declare (ignore init-length))
   #+sbcl(sb-concurrency:make-queue)
   #-sbcl(cl-fast-queues:make-safe-fifo :init-length init-length :waitp nil))
 
@@ -254,12 +255,10 @@ this function will try to destroy the thread anyhow."
                        (let ((*promise-error* err))
                          (setf ,last-err err)
                          (cl-trivial-pool:set-status *promise* :errored)
-                         (format *debug-io* "the promise's status was set to errored: ~d, error: ~d~%" *promise* err)
                          (unless *debug-promise-on-error*
                            (funcall ,error-handler err))))))
            (restart-case
-               (progn (format t "promise in restart case: ~d~%" *promise*)
-                 ,@body)
+               (progn ,@body)
              (reject-promise ()
                :report (lambda (s) (format s "~&Reject the promise ~a.~%" *promise*))
                (format *debug-io* "~&The promise was rejected: ~d.~%" *promise*)

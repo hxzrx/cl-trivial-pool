@@ -169,7 +169,7 @@ This is the preferred way to make a promise."
                                                   (with-error-handling
                                                       (lambda (err)
                                                         (funcall (alexandria:curry #'reject work) err) ; (reject work err)
-                                                        (return-from exit-on-error))
+                                                        (return-from exit-on-error err))
                                                     (funcall fn work))))
                                               ,bindings))
      work))
@@ -324,7 +324,7 @@ If the promise is resolved with a promise, set the later to the forward."
 
 (defmethod reject-promise% ((promise promise) condition)
   "Reject a promise with a condition, set related slots, do the errbacks."
-  (set-result promise condition)
+  (set-result promise condition) ; will change status to :finished
   (set-status promise :errored)
   (setf (slot-value promise 'error-obj) condition
         (slot-value promise 'errored-p) t
@@ -333,7 +333,6 @@ If the promise is resolved with a promise, set the later to the forward."
 
 (defmethod reject-promise% :after ((promise promise) condition)
   "Deal with the errbacks, and, if this promise is the tail of the chain, reject the head."
-  (format t "reject-promise% after: ~d~%" promise)
   (do-errbacks promise)
   ;; eq denotes that this promise is a forwarded promise,
   ;; the head is not compared, for the sake that one might reject a promise with itself (may be useless)
