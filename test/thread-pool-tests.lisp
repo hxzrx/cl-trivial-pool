@@ -14,13 +14,13 @@
 
 ;;; ------- thread-pool -------
 
-(define-test make-pool-and-inspect :parent tpool
+(define-test make-pool-and-inspect :parent pool
   (finish (tpool:inspect-pool (tpool:make-thread-pool)))
   ;;(fail (tpool:inspect-pool (tpool:make-thread-pool :keepalive-time -1))) ; this definitely fails but will signal compile error
   (finish (tpool:inspect-pool (tpool:make-thread-pool :name "" :max-worker-num 10 :keepalive-time 0)))
   (finish (tpool:inspect-pool (tpool:make-thread-pool :name "test pool" :max-worker-num 10 :keepalive-time 1))))
 
-(define-test peek-backlog :parent tpool
+(define-test peek-backlog :parent pool
   (let ((pool (tpool:make-thread-pool)))
     (is eq nil (tpool::peek-backlog pool))
     (tpool-utils:enqueue :work1 (tpool::thread-pool-backlog pool))
@@ -32,7 +32,7 @@
     (tpool-utils:dequeue (tpool::thread-pool-backlog pool))
     (is eq nil (tpool:peek-backlog pool))))
 
-(define-test make-work-item :parent tpool
+(define-test make-work-item :parent pool
   (let ((pool (tpool:make-thread-pool)))
     (finish (tpool:inspect-work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                                       :pool pool)))
@@ -48,7 +48,7 @@
                                                       :name "name"
                                                       :desc "desc")))))
 
-(define-test add-work :parent tpool
+(define-test add-work :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work0 (tpool:make-work-item :name "work0" :function #'(lambda () (+ 1 2 3)))) ; to test in default pool
          (work1 (tpool:make-work-item :name "work1" :function #'(lambda () (+ 1 2 3)))) ; to test in local pool, will be warned
@@ -99,7 +99,7 @@
     (is eq nil (tpool:peek-backlog pool))
     (is eq nil (tpool:peek-backlog tpool:*default-thread-pool*))))
 
-(define-test add-works-1 :parent tpool
+(define-test add-works-1 :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work-list (list (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
                           (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
@@ -126,7 +126,7 @@
     (is equal (make-list 10 :initial-element :finished)
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))))
 
-(define-test add-works-2 :parent tpool
+(define-test add-works-2 :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work-list (list (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
                           (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
@@ -153,7 +153,7 @@
     (is equal (make-list 10 :initial-element :finished)
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))))
 
-(define-test pool-main-1 :parent tpool
+(define-test pool-main-1 :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work-list (list (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
                           (tpool:make-work-item :function #'(lambda () (+ 1 2 3)))
@@ -221,14 +221,14 @@
     (false (tpool:peek-backlog pool))
     ))
 
-(define-test pool-main-2 :parent tpool
+(define-test pool-main-2 :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function #'(lambda () (values 1 2 3)))))
     (tpool:add-work work pool :xxxx)
     (sleep 0.0001)
     (is equal (list 1 2 3) (tpool:get-result work))))
 
-(define-test cancel-work :parent tpool
+(define-test cancel-work :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                      :pool pool))
@@ -269,7 +269,7 @@
       (is eql :finished (tpool:get-status work)))))
 
 
-(define-test flush-pool :parent tpool
+(define-test flush-pool :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                      :pool pool))
@@ -308,7 +308,7 @@
       (is eql nil (tpool:get-result work nil))
       (is eql :cancelled (tpool:get-status work)))))
 
-(define-test shutdown/restart-pool :parent tpool
+(define-test shutdown/restart-pool :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                      :pool pool)))
@@ -323,14 +323,14 @@
     (sleep 0.00001)
     (is equal (list 6) (tpool:get-result work))))
 
-(define-test add-thread :parent tpool
+(define-test add-thread :parent pool
   (let* ((pool (tpool:make-thread-pool)))
     (finish (dotimes (i 100)
               (tpool:add-thread pool)))
     (is = (tpool::thread-pool-max-worker-num pool)
         (+ (tpool::thread-pool-working-num pool) (tpool::thread-pool-idle-num pool)))))
 
-(define-test get-result :parent tpool
+(define-test get-result :parent pool
   ;; :created :ready :running :aborted :finished :cancelled :rejected
   (let* ((pool (tpool:make-thread-pool))
          (pool2 (tpool:make-thread-pool))
@@ -394,7 +394,7 @@
 
 (defparameter *some-bind* 3)
 
-(define-test with-work-item :parent tpool
+(define-test with-work-item :parent pool
   ;; Will be warned and it's OK.
   (let* ((work1 (tpool:with-work-item (:pool tpool:*default-thread-pool*) ; bindings nil
                   (+ 1 2 3)))
@@ -419,16 +419,20 @@
     (is = 6 (car (tpool:get-result work2)))
     (is = 6 (car (tpool:get-result work3)))))
 
-(define-test get/set-status :parent tpool
+(define-test get/set-status :parent pool
   (let ((work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)))
         (status :abcd))
     (is eq :created (tpool:get-status work))
     (finish (tpool:set-status work status))
     (is eq status (tpool:get-status work))))
 
-(define-test set-result :parent tpool
+(define-test set-result :parent pool
   (let ((work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)))
         (result "ABC"))
     (finish (tpool:set-result work result))
     (is eq :finished (tpool:get-status work))
     (is-values (tpool:get-result work) (equal (list result)) (eql t))))
+
+(define-test add-work-1 :parent pool
+  ;; to test the works with error signeled
+  )

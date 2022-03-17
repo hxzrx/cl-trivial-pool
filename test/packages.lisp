@@ -12,3 +12,4 @@
 (define-test tpool :parent cl-trivial-pool-tests)
 (define-test utils :parent tpool)
 (define-test pool :parent tpool)
+(define-test promise :parent tpool)
