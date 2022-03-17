@@ -1,4 +1,4 @@
-1(in-package :cl-trivial-pool)
+(in-package :cl-trivial-pool)
 
 (defstruct (thread-pool (:constructor make-thread-pool (&key (name (string (gensym "THREAD-POOL-")))
                                                           (max-worker-num *default-worker-num*)
