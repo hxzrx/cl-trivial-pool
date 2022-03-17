@@ -55,3 +55,17 @@
     (is = (* x x) (funcall (tpool-utils:make-unary (a)
                              (* a a))
                            x))))
+
+(define-test make-binary :parent utils
+  (is = 3 (funcall (tpool-utils:make-binary (a b) (+ a b)) 1 2)))
+
+(define-test make-n-ary :parent utils
+  (is = 6 (funcall (tpool-utils:make-n-ary (a b c) (+ a b c)) 1 2 3)))
+
+(define-test wrap-bindings :parent utils
+  (is = 3 (funcall (tpool-utils:wrap-bindings #'(lambda () (+ a b)) '((a 1) (b 2)))))
+  (is = 6 (funcall (tpool-utils:wrap-bindings #'(lambda (x) (+ a b x)) '((a 1) (b 2)) 3)))
+  (is = 4 (funcall (tpool-utils:wrap-bindings #'(lambda (x) (+ 1 x)) nil 3)))
+  (is = 3 (funcall (tpool-utils:wrap-bindings #'(lambda (x y) (+ x y)) nil 1 2)))
+  (is = 6 (funcall (tpool-utils:wrap-bindings #'(lambda () (+ 1 2 3)) nil)))
+  (is = 6 (funcall (tpool-utils:wrap-bindings #'(lambda () (+ 1 2 3))))))
