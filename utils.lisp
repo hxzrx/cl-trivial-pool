@@ -1,9 +1,19 @@
- (in-package :tpool-utils)
+(in-package :tpool-utils)
 
 (defvar *default-worker-num* (max 4 (cpus:get-number-of-processors)))
 
 (defparameter *default-keepalive-time* 60
   "Default value for the idle worker thread keepalive time. Note that it's cpu time, not real time.")
+
+(defvar *debug-pool-on-error* nil
+  "If t, will not catch errors passing through the handlers and will let them bubble up to the debugger.")
+
+(defvar *debug-promise-on-error* nil
+  "If t, will not catch errors passing through the handlers and will let them bubble up to the debugger.")
+
+(defparameter *promise* nil
+  "A promise that will be rebound when making a promise instance.")
+
 
 (defmacro unwind-protect-unwind-only (protected-form &body cleanup-forms)
   "Like UNWIND-PROTECT, but CLEANUP-FORMS are not executed if a normal return occurs."
@@ -15,7 +25,6 @@
               (setf ,abnormal-return nil))
          (when ,abnormal-return
            ,@cleanup-forms)))))
-
 
 ;;; hash
 (defun make-hash ()
@@ -213,11 +222,6 @@ this function will try to destroy the thread anyhow."
           (lambda () (apply fn args))
           fn)))
 
-(defvar *debug-pool-on-error* nil)
-
-(defvar *debug-promise-on-error* nil
-  "If t, will not catch errors passing through the handlers and will let them bubble up to the debugger.")
-
 #+:ignore
 (defmacro with-error-handling ((blockname &optional promise) error-fn &body body)
   "Wraps some nice restarts around the bits of code that run our promises and handles errors."
@@ -235,9 +239,6 @@ this function will try to destroy the thread anyhow."
                :report (lambda (s) (format s "Reject the promise ~a" ,promise))
                (format *debug-io* "~&;; promise rejected~%")
                (funcall ,error-fn ,last-err))))))))
-
-(defparameter *promise* nil
-  "A promise that will be rebound when making a promise instance.")
 
 (defmacro with-error-handling (error-handler &body body)
   "Wraps some nice restarts around the bits of code that run our promises and handles errors."
