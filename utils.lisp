@@ -14,6 +14,9 @@
 (defparameter *promise* nil
   "A promise that will be rebound when making a promise instance.")
 
+(defparameter *promise-error* nil
+  "A promise error that will be rebound when a error is signaled or when a promise is rejected.")
+
 
 (defmacro unwind-protect-unwind-only (protected-form &body cleanup-forms)
   "Like UNWIND-PROTECT, but CLEANUP-FORMS are not executed if a normal return occurs."
@@ -34,11 +37,11 @@
 
 ;;; fifo queue apis for safe accessing
 
-(defun make-queue (&optional (unbound t))
+(defun make-queue (&optional (init-length 100) (unbound t))
   "Return an unbound"
   (declare (ignore unbound))
   #+sbcl(sb-concurrency:make-queue)
-  #-sbcl(cl-fast-queues:make-safe-fifo))
+  #-sbcl(cl-fast-queues:make-safe-fifo :init-length init-length :waitp nil))
 
 (defun peek-queue (queue)
   "Return the first item to be dequeued without dequeueing it"
@@ -243,16 +246,20 @@ this function will try to destroy the thread anyhow."
 (defmacro with-error-handling (error-handler &body body)
   "Wraps some nice restarts around the bits of code that run our promises and handles errors."
   (let ((last-err (gensym "last-err")))
-    `(let ((,last-err nil))
+    `(let ((,last-err nil)
+           (*promise-error* nil))
        (block exit-on-error
          (handler-bind
              ((error (lambda (err)
-                       (setf ,last-err err)
-                       (cl-trivial-pool:set-status *promise* :errored)
-                       (unless *debug-on-error*
-                         (funcall ,error-handler err)))))
+                       (let ((*promise-error* err))
+                         (setf ,last-err err)
+                         (cl-trivial-pool:set-status *promise* :errored)
+                         (format *debug-io* "the promise's status was set to errored: ~d, error: ~d~%" *promise* err)
+                         (unless *debug-promise-on-error*
+                           (funcall ,error-handler err))))))
            (restart-case
-               (progn ,@body)
+               (progn (format t "promise in restart case: ~d~%" *promise*)
+                 ,@body)
              (reject-promise ()
                :report (lambda (s) (format s "~&Reject the promise ~a.~%" *promise*))
                (format *debug-io* "~&The promise was rejected: ~d.~%" *promise*)
