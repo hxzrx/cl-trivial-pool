@@ -28,6 +28,7 @@
            #:*debug-pool-on-error*
            #:*debug-promise-on-error*
            #:*promise*
+           #:*promise-error*
            #:exit-on-error
            ))
 
@@ -86,6 +87,11 @@
            #:signal-promise-warning
            #:signal-promise-condition
            #:promise
+           #:promise-resolved-p
+           #:promise-finished-p
+           #:promise-rejected-p
+           #:promise-errored-p
+           #:promise-error-obj
            #:inspect-promise
            #:promisep
            #:make-empty-promise
