@@ -17,26 +17,26 @@
 ;;; conditions definition
 
 (define-condition promise-condition (condition)
-  ((data   :initarg :data   :initform nil :accessor promise-condition-value)
+  ((data   :initarg :data   :initform nil :accessor promise-condition-data)
    (reason :initarg :reason :initform nil :accessor promise-condition-reason))
   (:report (lambda (err stream)
-             (format stream "The promise was signaled a condition <~d> with data <~s>"
+             (format stream "Promise condition <~d> with <~s>"
                      (promise-condition-reason err)
-                     (promise-condition-value err)))))
+                     (promise-condition-data err)))))
 
 (define-condition promise-warning (warning promise-condition)
   ()
   (:report (lambda (err stream)
-             (format stream "The promise was signaled an warning for an warn <~d> with data <~s>"
+             (format stream "Promise warn <~d> with <~s>"
                      (promise-condition-reason err)
-                     (promise-condition-value err)))))
+                     (promise-condition-data err)))))
 
 (define-condition promise-error (error promise-condition)
   ()
   (:report (lambda (err stream)
-             (format stream "The promise was signaled an error <~d> with data <~s>"
+             (format stream "Promise error <~d> with <~s>"
                      (promise-condition-reason err)
-                     (promise-condition-value err)))))
+                     (promise-condition-data err)))))
 
 (defun make-promise-condition (data reason)
   (make-instance 'promise-condition :data data :reason reason))
@@ -47,14 +47,14 @@
 (defun make-promise-error (data reason)
   (make-instance 'promise-error :data data :reason reason))
 
-(defun signal-promise-condition (reason value)
-  (signal 'promise-condition :reason reason :value value))
+(defun signal-promise-condition (data reason)
+  (signal 'promise-condition :data data :reason reason))
 
-(defun signal-promise-warning (reason value)
-  (warn 'promise-warning :reason reason :value value))
+(defun signal-promise-warning (data reason)
+  (warn 'promise-warning :data data :reason reason))
 
-(defun signal-promise-error (reason value)
-  (error 'promise-error :reason reason :value value))
+(defun signal-promise-error (data reason)
+  (error 'promise-error :data data :reason reason))
 
 
 ;;; promise class definition
@@ -68,8 +68,8 @@
 ;;   and thus finished-p provides further info:
 ;;     T for result's OK, NIL for errored or not finished yet
 (defclass promise (work-item)
-  ((callbacks  :initarg :callbacks  :initform (make-queue) :type list :accessor promise-callbacks)
-   (errbacks   :initarg :errbacks   :initform (make-queue) :type list :accessor promise-errbacks)
+  ((callbacks  :initarg :callbacks  :initform (make-queue 10 nil) :accessor promise-callbacks)
+   (errbacks   :initarg :errbacks   :initform (make-queue 10 nil) :accessor promise-errbacks)
    (forward    :initarg :forward    :initform (make-array 2 :initial-element nil) :accessor promise-forward)
    (resolved-p :initarg :resolved-p :initform nil :accessor promise-resolved-p)
    (finished-p :initarg :finished-p :initform nil :accessor promise-finished-p)
@@ -128,8 +128,7 @@ Thus the template of the create function `fn' would like:
       (resolve-or-reject-the-promise) ; by invkoing resolve or reject
       result-or-condition))
 
-by using with-error-handling, errors will be handled with rejecte called.
-"
+by using with-error-handling, errors will be handled with rejecte called."
   ;; (funcall (work-item-fn (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3)))))
   ;; (add-work (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3))))
   (let* ((work (change-class (make-work-item :pool pool
@@ -138,12 +137,12 @@ by using with-error-handling, errors will be handled with rejecte called.
                              'promise)))
     (setf (work-item-fn work) (wrap-bindings
                                (lambda ()
-                                (let ((*promise* work))
-                                  (with-error-handling
-                                      (lambda (err)
-                                        (funcall (alexandria:curry #'reject work) err) ; (reject work err)
-                                        (return-from exit-on-error))
-                                    (funcall fn work))))
+                                 (let ((*promise* work))
+                                   (with-error-handling
+                                       (lambda (err)
+                                         (funcall (alexandria:curry #'reject work) err) ; (reject work err)
+                                         (return-from exit-on-error err))
+                                     (funcall fn work))))
                                bindings))
 
     work))
@@ -223,10 +222,10 @@ And `attach-echoback' attach both callback and errback to the promise.
       (unless (queue-empty-p callbacks)
         (let ((result (work-item-result promise))) ; result is a list
           (loop unless (queue-empty-p callbacks)
-                do (let* ((callback (dequeue callbacks))
-                          (callback-obj (car callback))
-                          (callback-fn  (cadr callback)))
-                     (apply callback-fn callback-obj result)))))))
+                  do (let* ((callback (dequeue callbacks))
+                            (callback-obj (car callback))
+                            (callback-fn  (cadr callback)))
+                       (apply callback-fn callback-obj result)))))))
   promise)
 
 #+:ignore
@@ -244,10 +243,10 @@ And `attach-echoback' attach both callback and errback to the promise.
       (unless (queue-empty-p errbacks)
         (let ((condition (promise-error-obj promise)))
           (loop unless (queue-empty-p errbacks)
-                do (let* ((errback (dequeue errbacks))
-                          (errback-obj (car errback))
-                          (errback-fn  (cadr errback)))
-                     (funcall errback-fn errback-obj condition)))))))
+                  do (let* ((errback (dequeue errbacks))
+                            (errback-obj (car errback))
+                            (errback-fn  (cadr errback)))
+                       (funcall errback-fn errback-obj condition)))))))
   promise)
 
 (defmethod do-abnormal-status ((promise promise) status)
@@ -293,7 +292,7 @@ Note: 1. invoking this method only when the promise has finished (The final resu
 
 (defmethod run-promise :after ((promise promise))
   (when (eq :running (get-status promise)) ; if error signaled in work-item-fn, the status will be changed
-        (set-status promise :finished)))
+    (set-status promise :finished)))
 
 
 ;;; the core resolve and reject method
@@ -326,14 +325,15 @@ If the promise is resolved with a promise, set the later to the forward."
 (defmethod reject-promise% ((promise promise) condition)
   "Reject a promise with a condition, set related slots, do the errbacks."
   (set-result promise condition)
-  (set-status promise :finished)
+  (set-status promise :errored)
   (setf (slot-value promise 'error-obj) condition
         (slot-value promise 'errored-p) t
         (slot-value promise 'rejected-p) t)
-  promise)
+  condition)
 
 (defmethod reject-promise% :after ((promise promise) condition)
   "Deal with the errbacks, and, if this promise is the tail of the chain, reject the head."
+  (format t "reject-promise% after: ~d~%" promise)
   (do-errbacks promise)
   ;; eq denotes that this promise is a forwarded promise,
   ;; the head is not compared, for the sake that one might reject a promise with itself (may be useless)
@@ -352,11 +352,17 @@ The intermediate of the forward chain can be passed as I considered."
   "Reject a promise with a condition instance.
 Reject is bottom to top, since the forwarded promise is only something that takes place of the head promise's result in the future,
 If an error' signaled in a promise, it cannot propagate to the bottom.
-However, if an error's signaled, it should propagate to the top to reject the head promise."
-  (unless (promise-rejected-p promise)
-    (reject-promise% promise condition))
+However, if an error's signaled, it should propagate to the top to reject the head promise.
+A promise can be rejected with anything while a condition is preferred since it has the uniform interface."
+  (if *promise-error*
+      (unless (promise-rejected-p promise)
+        (reject-promise% promise condition))
+      (if (typep condition 'error)
+          (error condition)
+          (signal-promise-error condition (string (gensym "PROMISE-ERROR-")))))
   promise)
 
+#+:ignore
 (defmethod get-result ((promise promise) &optional (waitp t) (timeout nil))
   "Get the result of a promise."
   (let ((result (multiple-value-list (call-next-method waitp timeout))))
