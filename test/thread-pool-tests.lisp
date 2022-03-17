@@ -336,8 +336,9 @@
          (pool2 (tpool:make-thread-pool))
          (fun-long #'(lambda () (sleep 5) (+ 1 2 3))) ; be a long run task
          (fun-inst #'(lambda () (+ 1 2 3))) ; an instant task
-         (work (tpool:make-work-item :function fun-long :pool pool :name "work")) ; long run work
-         (work2 (tpool:make-work-item :function fun-inst :pool pool2 :name "work2"))) ; instant work
+         (work (tpool:make-work-item :function fun-long :pool pool :name "long work")) ; long run work
+         (work2 (tpool:make-work-item :function fun-inst :pool pool2 :name "instant work2")) ; instant work
+         (work3 (tpool:make-work-item :function (lambda () (error "xxx")) :pool pool :name "error work"))) ; error signals
     ;; :created
     (is-values (tpool:get-result work) (eql nil) (eql nil))
     (is-values (tpool:get-result work nil) (eql nil) (eql nil))
@@ -383,7 +384,13 @@
     (format t "~&This test shoule wait for 1 second.~%")
     (is-values (tpool:get-result work2 t 1) (eql nil) (eql nil)) ; test timeout
     (format t "~&This test shoule wait for 4 second.~%")
-    (is-values (tpool:get-result work2 t) (equal (list 6)) (eql t))))
+    (is-values (tpool:get-result work2 t) (equal (list 6)) (eql t))
+    ;; aborted
+    (tpool:add-work work3 pool)
+    (sleep 0.0001)
+    (is eq :aborted (tpool:get-status work3))
+    (is-values (tpool:get-result work3 nil) (eql nil) (eql nil))
+    ))
 
 (defparameter *some-bind* 3)
 
@@ -411,3 +418,17 @@
     (is = 6 (car (tpool:get-result work1)))
     (is = 6 (car (tpool:get-result work2)))
     (is = 6 (car (tpool:get-result work3)))))
+
+(define-test get/set-status :parent tpool
+  (let ((work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)))
+        (status :abcd))
+    (is eq :created (tpool:get-status work))
+    (finish (tpool:set-status work status))
+    (is eq status (tpool:get-status work))))
+
+(define-test set-result :parent tpool
+  (let ((work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)))
+        (result "ABC"))
+    (finish (tpool:set-result work result))
+    (is eq :finished (tpool:get-status work))
+    (is-values (tpool:get-result work) (equal (list result)) (eql t))))
