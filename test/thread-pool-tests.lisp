@@ -433,6 +433,21 @@
     (is eq :finished (tpool:get-status work))
     (is-values (tpool:get-result work) (equal (list result)) (eql t))))
 
-(define-test add-work-1 :parent pool
+(defun gen-n (n) n)
+
+(define-test add-work-error :parent pool
   ;; to test the works with error signeled
-  )
+  (let* ((pool (tpool:make-thread-pool))
+         (work0 (tpool:make-work-item :name "work0"
+                                      :function #'(lambda ()
+                                                    (let ((x (/ 1 (gen-n 0))))
+                                                      (format t "This should not be printed, or there must be a bug!~%")
+                                                      x))
+                                      :pool pool))
+         )
+    (is eq :created (tpool:get-status work0))
+    (finish (tpool:add-work work0))
+    (sleep 0.0001)
+    (is-values (tpool:get-result work0) (eq nil) (eq nil))
+    (is eq :aborted (tpool:get-status work0))
+))
