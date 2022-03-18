@@ -11,6 +11,8 @@
 (defun make-random-list (n &optional (max 100))
   (loop for i below n collect (random max)))
 
+(defun gen-n (n) n)
+
 
 ;;; ------- thread-pool -------
 
@@ -433,8 +435,6 @@
     (is eq :finished (tpool:get-status work))
     (is-values (tpool:get-result work) (equal (list result)) (eql t))))
 
-(defun gen-n (n) n)
-
 (define-test add-work-error :parent pool
   ;; to test the works with error signeled
   (let* ((pool (tpool:make-thread-pool))
@@ -443,11 +443,9 @@
                                                     (let ((x (/ 1 (gen-n 0))))
                                                       (format t "This should not be printed, or there must be a bug!~%")
                                                       x))
-                                      :pool pool))
-         )
+                                      :pool pool)))
     (is eq :created (tpool:get-status work0))
     (finish (tpool:add-work work0))
     (sleep 0.0001)
     (is-values (tpool:get-result work0) (eq nil) (eq nil))
-    (is eq :aborted (tpool:get-status work0))
-))
+    (is eq :aborted (tpool:get-status work0))))

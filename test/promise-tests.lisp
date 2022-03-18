@@ -1,7 +1,17 @@
 (in-package :cl-trivial-pool-tests)
 
-(defun gen-0 ()
-  0)
+(defun gen-0 () 0)
+
+(defun make-promise-promise (final-value &optional (pool tpool:*default-thread-pool*) (name "promised-promise"))
+  "Return a promise which will be resolved with another promise"
+  (let ((fn (lambda (promise)
+              (declare (ignore promise))
+              (promise:make-promise
+               (lambda (p)
+                 (declare (ignore p))
+                 final-value)))))
+    (promise:make-promise fn :pool pool :name name)))
+
 
 (define-test make-promise-condition :parent promise
   (let* ((reason "some-reason")
