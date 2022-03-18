@@ -47,6 +47,7 @@
            #:thread-pool-shutdown-p
            #:thread-pool-keepalive-time
            #:work-item
+           #:result
            #:work-item-pool
            #:work-item-fn
            #:work-item-result
