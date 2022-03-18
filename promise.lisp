@@ -189,7 +189,8 @@ and whose cadr is a function that accepts at least two args:
    the callbacked object, and the result of the promise. (lambda (obj &rest result) ... )
 If a promise is chained to another promise, the callback should designed to fulfillment the promised chained."
   (enqueue (list callback-to callback-fn)
-           (slot-value promise 'callbacks)))
+           (slot-value promise 'callbacks))
+  promise)
 
 (defmethod attach-errback ((promise promise) errback-to errback-fn)
   "Enqueue an error callback to the promise.
@@ -198,55 +199,55 @@ and whose cadr is a function that accepts exactly two args:
    the callbacked object, and the error-obj of the promise. (lambda (obj err) ... )
 "
   (enqueue (list errback-to errback-fn)
-           (slot-value promise 'errbacks)))
+           (slot-value promise 'errbacks))
+  promise)
 
 (defmethod attach-echoback ((promise promise) echoback-obj callback-fn errback-fn)
   "In many circumstance, an callback and an errback should be avaliable for the same object in a promise.
 And `attach-echoback' attach both callback and errback to the promise.
 `echoback-obj' is such an object and callback-fn, errback-fn are the echo functions, correspondingly"
   (attach-callback promise echoback-obj callback-fn)
-  (attach-errback  promise echoback-obj errback-fn))
+  (attach-errback  promise echoback-obj errback-fn)
+  promise)
 
-#+:ignore
-(defmethod do-callback% ((promise promise) callback) ; did not used
-  "Deal with one callback"
-  (let ((result (work-item-result promise))
-        (callback-obj (car callback))
-        (callback-fn  (cadr callback)))
-    (apply callback-fn callback-obj result)))
+(defmethod do-callbacks :before ((promise promise))
+  "Check if some promise's status is :finished with a non-promise result while the finished-p slot is nil.
+This happens in a degenerated promise (a promise whose function has neither referenced to the promise object nor resolve/reject it)"
+  ;; this is a scratchy patch, the code can be placed on a better place!
+  ;; can put it in the clean form or unwind-protect when making a promise
+  (when (and (eq :finished (get-status promise))
+             (null (promise-finished-p promise))
+             (promisep (car (get-result promise))))
+    (setf (slot-value promise 'finished-p) t)))
 
 (defmethod do-callbacks ((promise promise))
   "Deal with all callbacks"
   (when (promise-finished-p promise)
-    (let ((callbacks (promise-callbacks promise)))
+    (with-slots (callbacks result) promise
       (unless (queue-empty-p callbacks)
-        (let ((result (work-item-result promise))) ; result is a list
-          (loop unless (queue-empty-p callbacks)
-                  do (let* ((callback (dequeue callbacks))
-                            (callback-obj (car callback))
-                            (callback-fn  (cadr callback)))
-                       (apply callback-fn callback-obj result)))))))
+        (loop until (queue-empty-p callbacks) ; Oh, I've trapped and misused unless!
+              do (let* ((callback (dequeue callbacks))
+                        (callback-obj (car callback))
+                        (callback-fn  (cadr callback)))
+                   (apply callback-fn callback-obj result))))))
   promise)
-
-#+:ignore
-(defmethod do-errback% ((promise promise) errback) ; did not used
-  "Deal with one errback"
-  (let ((condition (promise-error-obj promise))
-        (errback-obj (car errback))
-        (errback-fn  (cadr errback)))
-    (apply errback-fn errback-obj condition)))
 
 (defmethod do-errbacks ((promise promise))
   "Deal with all errbacks"
   (when (promise-errored-p promise)
-    (let ((errbacks (promise-errbacks promise)))
+    (with-slots ((errbacks errbacks) (condition err-obj)) promise
       (unless (queue-empty-p errbacks)
-        (let ((condition (promise-error-obj promise)))
-          (loop unless (queue-empty-p errbacks)
-                  do (let* ((errback (dequeue errbacks))
-                            (errback-obj (car errback))
-                            (errback-fn  (cadr errback)))
-                       (funcall errback-fn errback-obj condition)))))))
+        (loop until (queue-empty-p errbacks)
+              do (let* ((errback (dequeue errbacks))
+                        (errback-obj (car errback))
+                        (errback-fn  (cadr errback)))
+                   (funcall errback-fn errback-obj condition))))))
+  promise)
+
+(defmethod do-echobacks ((promise promise))
+  "Deal with all callbacks and errbacks."
+  (do-callbacks promise)
+  (do-errbacks promise)
   promise)
 
 (defmethod do-abnormal-status ((promise promise) status)
@@ -257,7 +258,8 @@ And `attach-echoback' attach both callback and errback to the promise.
     (:rejected (reject promise (make-promise-error :rejected "Rejected by thread pool.")))
     (:cancelled (reject promise (make-promise-error :cancelled "Cancelled by thread pool.")))
     ;;(:errored (reject promise (make-promise-error :cancelled "Cancelled by thread pool."))) ; :errored should have been rejected
-    (otherwise t)))
+    (otherwise t))
+  promise)
 
 
 (defmethod run-promise ((promise promise))
