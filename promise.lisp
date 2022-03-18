@@ -235,7 +235,7 @@ This happens in a degenerated promise (a promise whose function has neither refe
 (defmethod do-errbacks ((promise promise))
   "Deal with all errbacks"
   (when (promise-errored-p promise)
-    (with-slots ((errbacks errbacks) (condition err-obj)) promise
+    (with-slots ((errbacks errbacks) (condition error-obj)) promise
       (unless (queue-empty-p errbacks)
         (loop until (queue-empty-p errbacks)
               do (let* ((errback (dequeue errbacks))
@@ -253,6 +253,8 @@ This happens in a degenerated promise (a promise whose function has neither refe
 (defmethod do-abnormal-status ((promise promise) status)
   "Deal with work-item's statuses"
   ;; :created :running :aborted :ready :finished :cancelled :rejected, and a new :errored
+  ;; :aborted, when an error is captured by thread-main without
+  ;; :errored, when something is called explicitly by reject, or an error is signaled
   (case status
     (:aborted (reject promise (make-promise-error :aborted "Aborted by thread pool.")))
     (:rejected (reject promise (make-promise-error :rejected "Rejected by thread pool.")))
@@ -299,6 +301,7 @@ Note: 1. invoking this method only when the promise has finished (The final resu
 
 ;;; the core resolve and reject method
 
+;; resolve
 (defmethod resolve-promise% ((promise promise) &rest args)
   "Resolve a promise with a final value, or another promise.
 If the promise is resolved with a promise, set the later to the forward."
@@ -324,6 +327,7 @@ If the promise is resolved with a promise, set the later to the forward."
              (null (eq (promise-chain-head promise) (promise-chain-tail promise)))) ; get rid of repeat solving
     (apply #'resolve (promise-chain-head promise) args)))   ; and resolve the head promise again.
 
+;; reject
 (defmethod reject-promise% ((promise promise) condition)
   "Reject a promise with a condition, set related slots, do the errbacks."
   (set-result promise condition) ; will change status to :finished
@@ -331,7 +335,7 @@ If the promise is resolved with a promise, set the later to the forward."
   (setf (slot-value promise 'error-obj) condition
         (slot-value promise 'errored-p) t
         (slot-value promise 'rejected-p) t)
-  condition)
+  promise)
 
 (defmethod reject-promise% :after ((promise promise) condition)
   "Deal with the errbacks, and, if this promise is the tail of the chain, reject the head."
