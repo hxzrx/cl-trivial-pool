@@ -232,7 +232,7 @@ or nil if the work has not finished."
     (prog1 (atomic-incf (thread-pool-working-num pool))
       (setf (gethash (gensym) (thread-pool-thread-table pool))
             (bt:make-thread (lambda () (thread-pool-main pool))
-                            :name (concatenate 'string "Worker of " (thread-pool-name pool))
+                            :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
                             :initial-bindings (thread-pool-initial-bindings pool))))))
 
 (defun add-task (function pool &key (name "") priority bindings desc)
@@ -264,7 +264,7 @@ thread pool's initial-bindings."
                  (< (+ working-num idle-num) max-worker-num))
         (setf (gethash (gensym) (thread-pool-thread-table pool))
               (bt:make-thread (lambda () (thread-pool-main pool))
-                              :name (concatenate 'string "Worker of " (thread-pool-name pool))
+                              :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
                               :initial-bindings (thread-pool-initial-bindings pool)))
         (atomic-incf (thread-pool-working-num pool)))
       (bt:condition-notify (thread-pool-cvar pool)))
@@ -286,8 +286,9 @@ Returns a list of the work items added."
 (defmethod add-work ((work work-item) &optional (pool *default-thread-pool*) priority)
   "Enqueue a work-item to a thread-pool."
   (declare (ignore priority))
-  (unless (eq (work-item-pool work) pool)
-    (setf (work-item-pool work) pool)) ; this will not likely to compete among threads
+  (if (thread-pool-p (work-item-pool work))
+      (setf pool (work-item-pool work))
+      (setf (slot-value work 'pool) pool))
   (with-slots (backlog max-worker-num working-num idle-num) pool
     (when (thread-pool-shutdown-p pool)
       (error "Attempted to add work item to a shutted down thread pool ~S" pool))
@@ -299,7 +300,7 @@ Returns a list of the work items added."
                (< (+ working-num idle-num) max-worker-num))
       (setf (gethash (gensym) (thread-pool-thread-table pool))
             (bt:make-thread (lambda () (thread-pool-main pool))
-                            :name (concatenate 'string "Worker of " (thread-pool-name pool))
+                            :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
                             :initial-bindings (thread-pool-initial-bindings pool)))
       (atomic-incf (thread-pool-working-num pool)))
     (bt:condition-notify (thread-pool-cvar pool)))
