@@ -66,6 +66,8 @@
   (error 'promise-error :data data :reason reason))
 
 (defun signal-promise-resolving (value)
+  "signal this condition to make a non-local exit.
+this function is suggested to be invoked explicity after calling resolve and do not want to execute the codes there after."
   (signal 'promise-resolve-condition :data value))
 
 ;;; promise class definition
@@ -228,7 +230,7 @@ This happens in a degenerated promise (a promise whose function has neither refe
   ;; can put it in the clean form or unwind-protect when making a promise
   (when (and (eq :finished (get-status promise))
              (null (promise-finished-p promise))
-             (promisep (car (get-result promise))))
+             (null (promisep (car (get-result promise))))) ; add null, 03/21
     (setf (slot-value promise 'finished-p) t)))
 
 (defmethod do-callbacks ((promise promise))
@@ -361,6 +363,7 @@ If the promise is resolved with a promise, set the later to the forward."
   "Resolve a promise with the final value, or another promise, and support resolving the promise with itself.
 Resolve is top to bottom, then bottom to top.
 The intermediate of the forward chain can be passed as I considered."
+  ;; do not add non-local exits to resolve :after methos since it will break echobacks
   (apply #'resolve-promise% promise args)
   promise)
 
@@ -377,14 +380,6 @@ A promise can be rejected with anything while a condition is preferred since it 
           (error condition)
           (signal-promise-error condition (string (gensym "PROMISE-ERROR-")))))
   promise)
-
-#+:ignore
-(defmethod get-result ((promise promise) &optional (waitp t) (timeout nil))
-  "Get the result of a promise."
-  (let ((result (multiple-value-list (call-next-method waitp timeout))))
-    (if (eq :errored (get-status promise)) ; this status can be set only in the body of with-condition-handling
-        (values nil nil)
-        (values (car result) (cadr result)))))
 
 
 ;;; some utils
