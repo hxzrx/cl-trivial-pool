@@ -56,13 +56,14 @@
 
 (defun inspect-work (work &optional (simple-mode t))
   "Return a detail description of the work item."
-  (format nil (format nil "name: ~d, desc: ~d~@[, pool: ~d~], status: ~d, result: ~d."
+  (format nil (format nil "name: ~d, desc: ~d~@[, pool: ~d~], status: ~d, result: ~d, pool: ~d."
                       (work-item-name work)
                       (work-item-desc work)
                       (unless simple-mode
                         (thread-pool-name (work-item-pool work)))
                       (atomic-place (work-item-status work))
-                      (work-item-result work))))
+                      (work-item-result work)
+                      (thread-pool-name (work-item-pool work)))))
 
 (defmethod print-object ((work work-item) stream)
   (print-unreadable-object (work stream :type t)
