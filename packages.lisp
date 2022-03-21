@@ -24,7 +24,7 @@
            #:make-binary
            #:make-n-ary
            #:wrap-bindings
-           #:with-error-handling
+           #:with-condition-handling
            #:*debug-pool-on-error*
            #:*debug-promise-on-error*
            #:*promise*
@@ -81,12 +81,15 @@
   (:export #:promise-condition
            #:promise-warning
            #:promise-error
+           #:promise-resolve-condition
            #:make-promise-condition
            #:make-promise-warning
            #:make-promise-error
+           #:make-promise-resolve-condition
            #:signal-promise-error
            #:signal-promise-warning
            #:signal-promise-condition
+           #:signal-promise-resolving
            #:promise
            #:promise-resolved-p
            #:promise-finished-p

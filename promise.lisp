@@ -9,7 +9,8 @@
 ;;;; 2. A promise's finish event may results some callbacks.
 ;;;;    Although this callback can be invoked within the work-item's workload function,
 ;;;;    in an async context, this is inevitable if a promise is finished by another promise.
-;;;;
+;;;; 3. A promise's work-item-status will be set within the promise's own logic,
+;;;;    not in thread-main, to isolate from normal work-item.
 
 
 (in-package :promise)
@@ -17,29 +18,34 @@
 ;;; conditions definition
 
 (define-condition promise-condition (condition)
-  ((data   :initarg :data   :initform nil :accessor promise-condition-data)
-   (reason :initarg :reason :initform nil :accessor promise-condition-reason))
+  ((data   :initarg :data   :initform nil :accessor promise-condition-data))
+  ;;(reason :initarg :reason :initform nil :accessor promise-condition-reason))
   (:report (lambda (err stream)
-             (format stream "Promise condition <~d> with <~s>"
-                     (promise-condition-reason err)
+             (format stream "Promise condition with <~s>"
                      (promise-condition-data err)))))
 
 (define-condition promise-warning (warning promise-condition)
-  ()
+  ((reason :initarg :reason :initform nil :accessor promise-warning-reason))
   (:report (lambda (err stream)
              (format stream "Promise warn <~d> with <~s>"
-                     (promise-condition-reason err)
+                     (promise-warning-reason err)
                      (promise-condition-data err)))))
 
 (define-condition promise-error (error promise-condition)
-  ()
+  ((reason :initarg :reason :initform nil :accessor promise-error-reason))
   (:report (lambda (err stream)
              (format stream "Promise error <~d> with <~s>"
-                     (promise-condition-reason err)
+                     (promise-error-reason err)
                      (promise-condition-data err)))))
 
-(defun make-promise-condition (data reason)
-  (make-instance 'promise-condition :data data :reason reason))
+(define-condition promise-resolve-condition (promise-condition)
+  ()
+  (:report (lambda (condition stream)
+             (format stream "Promise resolved with value <~s>"
+                     (promise-condition-data condition)))))
+
+(defun make-promise-condition (data)
+  (make-instance 'promise-condition :data data))
 
 (defun make-promise-warning (data reason)
   (make-instance 'promise-warning :data data :reason reason))
@@ -47,8 +53,11 @@
 (defun make-promise-error (data reason)
   (make-instance 'promise-error :data data :reason reason))
 
-(defun signal-promise-condition (data reason)
-  (signal 'promise-condition :data data :reason reason))
+(defun make-promise-resolve-condition (value)
+  (make-instance 'promise-resolve-condition :data value))
+
+(defun signal-promise-condition (data)
+  (signal 'promise-condition :data data))
 
 (defun signal-promise-warning (data reason)
   (warn 'promise-warning :data data :reason reason))
@@ -56,6 +65,8 @@
 (defun signal-promise-error (data reason)
   (error 'promise-error :data data :reason reason))
 
+(defun signal-promise-resolving (value)
+  (signal 'promise-resolve-condition :data value))
 
 ;;; promise class definition
 
@@ -128,7 +139,7 @@ Thus the template of the create function `fn' would like:
       (resolve-or-reject-the-promise) ; by invkoing resolve or reject
       result-or-condition))
 
-by using with-error-handling, errors will be handled with rejecte called."
+by using with-condition-handling, errors will be handled with rejecte called."
   ;; (funcall (work-item-fn (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3)))))
   ;; (add-work (make-promise (lambda (p) (declare (ignore p)) (+ 1 2 3))))
   (let* ((work (change-class (make-work-item :pool pool
@@ -138,7 +149,7 @@ by using with-error-handling, errors will be handled with rejecte called."
     (setf (work-item-fn work) (wrap-bindings
                                (lambda ()
                                  (let ((*promise* work))
-                                   (with-error-handling
+                                   (with-condition-handling
                                        (lambda (err)
                                          (funcall (alexandria:curry #'reject work) err) ; (reject work err)
                                          (return-from exit-on-error err))
@@ -166,7 +177,7 @@ This is the preferred way to make a promise."
      ;;( setf (work-item-fn work) (wrap-bindings fn ,bindings work))
      (setf (work-item-fn work) (wrap-bindings (lambda ()
                                                 (let ((*promise* work))
-                                                  (with-error-handling
+                                                  (with-condition-handling
                                                       (lambda (err)
                                                         (funcall (alexandria:curry #'reject work) err) ; (reject work err)
                                                         (return-from exit-on-error err))
@@ -225,7 +236,7 @@ This happens in a degenerated promise (a promise whose function has neither refe
   (when (promise-finished-p promise)
     (with-slots (callbacks result) promise
       (unless (queue-empty-p callbacks)
-        (loop until (queue-empty-p callbacks) ; Oh, I've trapped and misused unless!
+        (loop until (queue-empty-p callbacks) ; Oh, I've misused unless and trapped!
               do (let* ((callback (dequeue callbacks))
                         (callback-obj (car callback))
                         (callback-fn  (cadr callback)))
@@ -371,7 +382,7 @@ A promise can be rejected with anything while a condition is preferred since it 
 (defmethod get-result ((promise promise) &optional (waitp t) (timeout nil))
   "Get the result of a promise."
   (let ((result (multiple-value-list (call-next-method waitp timeout))))
-    (if (eq :errored (get-status promise)) ; this status can be set only in the body of with-error-handling
+    (if (eq :errored (get-status promise)) ; this status can be set only in the body of with-condition-handling
         (values nil nil)
         (values (car result) (cadr result)))))
 
@@ -381,7 +392,7 @@ A promise can be rejected with anything while a condition is preferred since it 
 (defun promisify-fn (fn &key (pool *default-thread-pool*) (name (string (gensym "FN-PROMISIFIED-"))))
   "Turns any value or set of values into a promise, unless a promise is passed in which case it is returned."
   (let ((promise (make-empty-promise pool name)))
-    (with-error-handling
+    (with-condition-handling
         (lambda (err)
           (reject promise err)
           (do-errbacks promise)
