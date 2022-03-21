@@ -91,13 +91,14 @@ this function is suggested to be invoked explicity after calling resolve and do 
    (error-obj  :initarg :error-obj  :initform nil :accessor promise-error-obj)
    ))
 
+#+:ignore ; forward charin do not share the same slot
 (defmethod initialize-instance :after ((promise promise) &key &allow-other-keys)
   (with-slots (forward) promise
     (setf (svref forward 0) promise)))
 
 (defun inspect-promise (promise)
   "Return a detail description of the promise."
-  (format nil (format nil "name: ~d, status: ~d, result: ~d, resolved: ~d, rejected: ~d, finishedp: ~d, errored-p: ~d~@[, error object: ~d~], there are ~d callbacks and ~d errbacks, forward to: ~d."
+  (format nil (format nil "name: ~d, status: ~d, result: ~d, resolved: ~d, rejected: ~d, finishedp: ~d, errored-p: ~d~@[, error object: ~d~], there are ~d callbacks and ~d errbacks, forward chain previous: ~d, forward chain next: ~d, pool: ~d."
                       (work-item-name promise)
                       (atomic-place (work-item-status promise))
                       (work-item-result promise)
@@ -108,7 +109,12 @@ this function is suggested to be invoked explicity after calling resolve and do 
                       (when (promise-errored-p promise) (promise-error-obj promise))
                       (queue-count (promise-callbacks promise))
                       (queue-count (promise-errbacks promise))
-                      (svref (promise-forward promise) 1))))
+                      (alexandria:when-let (prev (svref (promise-forward promise) 0))
+                        (work-item-name prev))
+                      (alexandria:when-let (next (svref (promise-forward promise) 1))
+                        (work-item-name next))
+                      (alexandria:when-let (pool (work-item-pool promise))
+                        (thread-pool-name pool)))))
 
 (defmethod print-object ((promise promise) stream)
   (print-unreadable-object (promise stream :type t)
@@ -187,11 +193,11 @@ This is the preferred way to make a promise."
                                               ,bindings))
      work))
 
-(defmethod promise-chain-head ((promise promise))
+(defmethod promise-chain-previous ((promise promise))
   "Return the first promise of a promise chain."
   (svref (promise-forward promise) 0))
 
-(defmethod promise-chain-tail ((promise promise))
+(defmethod promise-chain-next ((promise promise))
   "Return the last promise of a promise chain."
   (svref (promise-forward promise) 1))
 
@@ -323,8 +329,11 @@ If the promise is resolved with a promise, set the later to the forward."
   (if (promisep (car args))
       (let ((new-promise (car args)))
         (setf (svref (promise-forward promise) 1) new-promise)
-        (setf (slot-value new-promise 'forward) (promise-forward promise))
+        (format t "---Raw promise forward set: ~d~%~%" promise)
+        (setf (svref (promise-forward new-promise) 0) promise)
+        (format t "...Forwarded promise: ~d~%~%" new-promise)
         (set-status new-promise :created) ; this setf deal with a promise fulfillment with itself
+        (format t "///Promise forward set: ~d~%~%" promise)
         (run-promise new-promise))  ; can send it to the pool either, and if sent, should change its status to :created
       (setf (slot-value promise 'finished-p) t))
   (setf (slot-value promise 'resolved-p) t)
@@ -336,9 +345,9 @@ If the promise is resolved with a promise, set the later to the forward."
   ;; eq denotes that it's a forwarded promise,
   ;; the head is not compared, for the sake that one might resolve a promise with itself (may be useless)
   (when (and (null (promisep (car args)))
-             (eq promise (promise-chain-tail promise))
-             (null (eq (promise-chain-head promise) (promise-chain-tail promise)))) ; get rid of repeat solving
-    (apply #'resolve (promise-chain-head promise) args)))   ; and resolve the head promise again.
+             (eq promise (promise-chain-next promise))
+             (null (eq (promise-chain-previous promise) (promise-chain-next promise)))) ; get rid of repeat solving
+    (apply #'resolve (promise-chain-previous promise) args)))   ; and resolve the head promise again.
 
 ;; reject
 (defmethod reject-promise% ((promise promise) condition)
@@ -355,15 +364,16 @@ If the promise is resolved with a promise, set the later to the forward."
   (do-errbacks promise)
   ;; eq denotes that this promise is a forwarded promise,
   ;; the head is not compared, for the sake that one might reject a promise with itself (may be useless)
-  (when (and (eq promise (promise-chain-tail promise))
-             (null (eq (promise-chain-head promise) (promise-chain-tail promise)))) ; get rid of repeat solving
-    (reject (promise-chain-head promise) condition)))   ; and reject the head promise again.
+  (when (promisep (promise-chain-previous promise))
+    (reject (promise-chain-previous promise) condition)))   ; and reject the head promise again.
 
 (defmethod resolve ((promise promise) &rest args)
   "Resolve a promise with the final value, or another promise, and support resolving the promise with itself.
 Resolve is top to bottom, then bottom to top.
 The intermediate of the forward chain can be passed as I considered."
   ;; do not add non-local exits to resolve :after methos since it will break echobacks
+  (format t "In resolve: promise: ~d~%~%" promise)
+  (format t "In resolve: args: ~d~%~%" (car args))
   (apply #'resolve-promise% promise args)
   promise)
 
