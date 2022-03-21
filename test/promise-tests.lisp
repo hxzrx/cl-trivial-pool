@@ -1,4 +1,11 @@
+;;;; 当前存在问题: promise被显示resolve后, resolve后面的逻辑还会执行.
+;;;; promise的状态被thread-pool修改之前, 也可能被promise逻辑修改, do-callbacks的:before处有一个简单补丁.
+;;;; 若某个promise的值是另一个promise, 相关转发还没测试.
+;;;; 由于与thread-pool进行了继承, promise的逻辑使用了很多非局部退出, 逻辑显得有点混乱.
+
 (in-package :cl-trivial-pool-tests)
+
+(defparameter *test-promise-pool* (tpool:make-thread-pool :name "PROMISE-TEST-POOL"))
 
 (defun gen-0 () 0)
 
@@ -20,28 +27,78 @@
       (ignore-errors (bt:destroy-thread thread)))))
 
 
+(defun promise-gen (type)
+  "valid `type':
+:simple, no resolve invoked, no rejecte invoked, no error signaled, degenerated to a normal work-item.
+:simpke-err, no resolve invoked, no rejecte invoked, error signaled, will be rejected automatically.
+:explicit-resolve, resolved by invoking resolve.
+:reject-err, rejected by calling resolve with an error.
+:reject-non-err, rejected by calling resolve with non-error data.
+:return-promise, the returned value of this promise is another promise of type :simple, will be forwarded.
+:return-err-promise, the returned value of this promise is another promise of type :simple-err, will be forwarded.
+:empty, return an empty promise, can be used to test attach.
+"
+  (ecase type
+    (:simple (promise:make-promise (lambda (promise)
+                                     (declare (ignore promise)) (+ 1 2 3))
+                                   :pool *test-promise-pool* :name "simple-promise"))
+    (:simple-err (promise:make-promise (lambda (promise)
+                                         (declare (ignore promise))
+                                         (let* ((x (gen-0))
+                                                (y (/ 1 x)))
+                                           (format t "This cannot be reached, or there must be a bug!~%")
+                                           y))
+                                       :pool *test-promise-pool* :name "simple-error-promise"))
+    (:explicit-resolve (promise:make-promise (lambda (promise)
+                                               (let ((result (+ 1 2 3)))
+                                                 (promise:resolve promise result)
+                                                 ;; the following line will be printed now, is will be an enhancement.
+                                                 (format t "This cannot be reached, or there must be a bug!~%")
+                                                 result))
+                                             :pool *test-promise-pool* :name "explicit-resolve"))
+    (:reject-err (promise:make-promise (lambda (promise)
+                                         (promise:reject promise (promise:make-promise-error 123 "xx"))
+                                         (format t "This cannot be reached, or there must be a bug!~%"))
+                                       :pool *test-promise-pool* :name "explicit-reject-promise-err"))
+    (:reject-non-err (promise:make-promise (lambda (promise)
+                                             (promise:reject promise 123)
+                                             (format t "This cannot be reached, or there must be a bug!~%"))
+                                           :pool *test-promise-pool* :name "reject-with-ordinary-data"))
+    (:return-promise (promise:make-promise (lambda (promise)
+                                             (declare (ignore promise))
+                                             (promise-gen :simple))))
+    (:return-err-promise (promise:make-promise (lambda (promise)
+                                                 (declare (ignore promise))
+                                                 (promise-gen :simple-err))))
+    (:empty (promise:make-empty-promise *test-promise-pool* "empty-promise"))))
+
+
 ;;; -------
 
 (define-test make-promise-condition :parent promise
   (let* ((reason "some-reason")
          (data 123456)
-         (condition (promise:make-promise-condition data reason))
+         (condition (promise:make-promise-condition data))
          (warning   (promise:make-promise-warning data reason))
-         (err       (promise:make-promise-error data reason)))
+         (err       (promise:make-promise-error data reason))
+         (resolving (promise:make-promise-resolve-condition data)))
     (of-type promise:promise-condition condition)
     (of-type promise:promise-warning   warning)
     (of-type promise:promise-error     err)
-    (is equal reason (slot-value condition 'promise::reason))
+    (of-type promise:promise-resolve-condition resolving)
+    ;;(is equal reason (slot-value condition 'promise::reason))
     (is equal data   (slot-value condition 'promise::data))
     (is equal reason (slot-value warning 'promise::reason))
     (is equal data   (slot-value warning 'promise::data))
     (is equal reason (slot-value err 'promise::reason))
-    (is equal data   (slot-value err 'promise::data))))
+    (is equal data   (slot-value err 'promise::data))
+    (is equal data   (slot-value resolving 'promise::data))))
 
 (define-test signal-promise-condition :parent promise
   (fail (promise:signal-promise-error 123 "xxx"))
   (finish (promise:signal-promise-warning 123 "xxx"))
-  (finish (promise:signal-promise-condition 123 "xxx")))
+  (finish (promise:signal-promise-condition 123))
+  (finish (promise:signal-promise-resolving 123)))
 
 (define-test inspect-promise :parent promise
   (finish (promise:inspect-promise (make-instance 'promise:promise))))
