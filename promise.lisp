@@ -193,13 +193,17 @@ This is the preferred way to make a promise."
                                               ,bindings))
      work))
 
-(defmethod promise-chain-previous ((promise promise))
+(defmacro promise-chain-previous (promise)
   "Return the first promise of a promise chain."
-  (svref (promise-forward promise) 0))
+  (let ((promise% (gensym)))
+    `(let ((,promise% ,promise))
+       (svref (promise-forward ,promise%) 0))))
 
-(defmethod promise-chain-next ((promise promise))
+(defmacro promise-chain-next (promise)
   "Return the last promise of a promise chain."
-  (svref (promise-forward promise) 1))
+  (let ((promise% (gensym)))
+    `(let ((,promise% ,promise))
+       (svref (promise-forward ,promise%) 1))))
 
 (defmethod attach-callback ((promise promise) callback-to callback-fn)
   "Enqueue an callback to the promise.
