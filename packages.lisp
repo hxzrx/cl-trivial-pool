@@ -78,7 +78,13 @@
 
 (defpackage #:promise
   (:use #:cl #:tpool-utils #:cl-trivial-pool)
-  (:export #:promise-condition
+  (:export #:add-work
+           #:get-result
+           #:set-result
+           #:get-status
+           #:set-status
+           ;;... may be more symbols from thread-pool
+           #:promise-condition
            #:promise-warning
            #:promise-error
            #:promise-resolve-condition
@@ -109,7 +115,6 @@
            ;;#:run-promise
            #:resolve
            #:reject
-           #:get-result
            #:promisify-fn
            #:promisify-form
            ))
