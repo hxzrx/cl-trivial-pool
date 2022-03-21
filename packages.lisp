@@ -29,7 +29,7 @@
            #:*debug-promise-on-error*
            #:*promise*
            #:*promise-error*
-           #:exit-on-error
+           #:exit-on-condition
            ))
 
 (defpackage #:cl-trivial-pool

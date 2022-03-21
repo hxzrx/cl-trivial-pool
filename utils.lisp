@@ -244,19 +244,25 @@ this function will try to destroy the thread anyhow."
                (format *debug-io* "~&;; promise rejected~%")
                (funcall ,error-fn ,last-err))))))))
 
-(defmacro with-error-handling (error-handler &body body)
-  "Wraps some nice restarts around the bits of code that run our promises and handles errors."
+(defmacro with-condition-handling (error-handler &body body)
+  "Wraps some nice restarts around the bits of code that run our promises and handles errors.
+As well as, when in a degenerated promise, use this to resolve the promise"
   (let ((last-err (gensym "last-err")))
     `(let ((,last-err nil)
            (*promise-error* nil))
-       (block exit-on-error
+       (block exit-on-condition
          (handler-bind
-             ((error (lambda (err)
+             ((error (lambda (err) ; used to handle unhandled error and resolve the promise
                        (let ((*promise-error* err))
                          (setf ,last-err err)
                          (cl-trivial-pool:set-status *promise* :errored)
                          (unless *debug-promise-on-error*
-                           (funcall ,error-handler err))))))
+                           (funcall ,error-handler err)))))
+              (promise-resolve-condition (lambda (condition) ; used to resolve a promise that's not been resolved explicitly
+                                           (let ((val (promise::promise-condition-data condition)))
+                                             (format *debug-io* "~&The promise <~d> was resolved with <~d>.~%" *promise* val)
+                                             (promise:resolve *promise* val)
+                                             (return-from exit-on-condition value)))))
            (restart-case
                (progn ,@body)
              (reject-promise ()

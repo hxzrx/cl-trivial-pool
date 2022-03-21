@@ -152,7 +152,7 @@ by using with-condition-handling, errors will be handled with rejecte called."
                                    (with-condition-handling
                                        (lambda (err)
                                          (funcall (alexandria:curry #'reject work) err) ; (reject work err)
-                                         (return-from exit-on-error err))
+                                         (return-from exit-on-condition err))
                                      (funcall fn work))))
                                bindings))
 
@@ -180,7 +180,7 @@ This is the preferred way to make a promise."
                                                   (with-condition-handling
                                                       (lambda (err)
                                                         (funcall (alexandria:curry #'reject work) err) ; (reject work err)
-                                                        (return-from exit-on-error err))
+                                                        (return-from exit-on-condition err))
                                                     (funcall fn work))))
                                               ,bindings))
      work))
@@ -396,7 +396,7 @@ A promise can be rejected with anything while a condition is preferred since it 
         (lambda (err)
           (reject promise err)
           (do-errbacks promise)
-          (return-from exit-on-error))
+          (return-from exit-on-condition))
       (let* ((vals (multiple-value-list (funcall fn)))
              (promise-maybe (car vals)))
         (if (promisep promise-maybe)
