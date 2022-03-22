@@ -154,6 +154,37 @@ return a promise that will be fulfilled with another promise.
                                                     (format t "Printing this showed a bug, :reject/reject-non-err promise!~%"))
                                                   :pool *test-promise-pool* :name "reject/reject-non-err"))))
 
+(defun nested-promise-gen (depth type &optional current-promise)
+  "Return a promise that will be fulfilled with another promise that will be fulfilled with another promise ...
+with `depth' depth, and the last promise is of type `type' showed above."
+  (if (< depth 0)
+      current-promise
+      (if (null current-promise)
+          (let ((new-promise (basic-promise-gen type))
+                (callback-fn (lambda (pms &rest args)
+                               (declare (ignore pms))
+                               (format t "~&Call back for promise ~d with args <~d>.~%" depth args)))
+                (errback-fn  (lambda (pms err)
+                               (declare (ignore pms))
+                               (format t "~&Error back for promise ~d with err <~d>.~%" depth err))))
+            (promise:attach-echoback new-promise current-promise callback-fn errback-fn)
+            (nested-promise-gen (1- depth) type new-promise))
+          (let ((new-promise (promise:make-promise (lambda (pms)
+                                                     (declare (ignore pms))
+                                                     current-promise)
+                                                   :pool *test-promise-pool*
+                                                   :name (format nil "NESTED-PROMISE-~d" depth)))
+                (callback-fn (lambda (pms &rest args)
+                               (declare (ignore pms))
+                               (format t "~&Call back for promise ~d with args <~d>.~%" depth args)))
+                (errback-fn  (lambda (pms err)
+                               (declare (ignore pms))
+                               (format t "~&Error back for promise ~d with err <~d>.~%" depth err))))
+            (promise:attach-echoback new-promise current-promise callback-fn errback-fn)
+            (nested-promise-gen (1- depth) type new-promise)))))
+
+
+
 ;;; -------
 
 (define-test make-promise-condition :parent promise
@@ -817,8 +848,7 @@ return a promise that will be fulfilled with another promise.
         (promise2 (promise:promisify-fn #'(lambda () (+ 1 2 3))))
         (promise3 (promise:promisify-fn #'(lambda () (/ 1 (gen-0)))))
         (promise4 (promise:promisify-fn #'(lambda () (funcall #'basic-promise-gen :simple))))
-        (promise5 (promise:promisify-fn #'(lambda () (funcall #'basic-promise-gen :simple-err))))
-        )
+        (promise5 (promise:promisify-fn #'(lambda () (funcall #'basic-promise-gen :simple-err)))))
 
     (is eq t (promise:promisep promise1))
     (is-values (tpool:get-result promise1) (equal (list 6)) (eq t))
@@ -863,5 +893,56 @@ return a promise that will be fulfilled with another promise.
     (is eq nil      (promise:promise-resolved-p promise5))
     (is eq t        (promise:promise-rejected-p promise5))
     (is eq t        (promise:promise-errored-p  promise5))
-    (of-type error  (promise:promise-error-obj  promise5))
-    ))
+    (of-type error  (promise:promise-error-obj  promise5))))
+
+(define-test promisify-form :parent promise
+  (let ((promise1 (promise:promisify-form 6))
+        (promise2 (promise:promisify-form (+ 1 2 3)))
+        (promise3 (promise:promisify-form (/ 1 (gen-0))))
+        (promise4 (promise:promisify-form (funcall #'basic-promise-gen :simple)))
+        (promise5 (promise:promisify-form (funcall #'basic-promise-gen :simple-err))))
+
+    (is eq t (promise:promisep promise1))
+    (is-values (tpool:get-result promise1) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status promise1))
+    (is eq t   (promise:promise-finished-p promise1))
+    (is eq t   (promise:promise-resolved-p promise1))
+    (is eq nil (promise:promise-rejected-p promise1))
+    (is eq nil (promise:promise-errored-p  promise1))
+    (is eq nil (promise:promise-error-obj  promise1))
+
+    (is eq t (promise:promisep promise2))
+    (is-values (tpool:get-result promise2) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status promise2))
+    (is eq t   (promise:promise-finished-p promise2))
+    (is eq t   (promise:promise-resolved-p promise2))
+    (is eq nil (promise:promise-rejected-p promise2))
+    (is eq nil (promise:promise-errored-p  promise2))
+    (is eq nil (promise:promise-error-obj  promise2))
+
+    (is eq t        (promise:promisep promise3))
+    (is-values      (tpool:get-result promise3) (eq nil) (eq nil))
+    (is eq :errored (tpool:get-status promise3))
+    (is eq nil      (promise:promise-finished-p promise3))
+    (is eq nil      (promise:promise-resolved-p promise3))
+    (is eq t        (promise:promise-rejected-p promise3))
+    (is eq t        (promise:promise-errored-p  promise3))
+    (of-type error  (promise:promise-error-obj  promise3))
+
+    (is eq t (promise:promisep promise4))
+    (is-values (tpool:get-result promise4) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status promise4))
+    (is eq t   (promise:promise-finished-p promise4))
+    (is eq t   (promise:promise-resolved-p promise4))
+    (is eq nil (promise:promise-rejected-p promise4))
+    (is eq nil (promise:promise-errored-p  promise4))
+    (is eq nil (promise:promise-error-obj  promise4))
+
+    (is eq t        (promise:promisep promise5))
+    (is-values      (tpool:get-result promise5) (eq nil) (eq nil))
+    (is eq :errored (tpool:get-status promise5))
+    (is eq nil      (promise:promise-finished-p promise5))
+    (is eq nil      (promise:promise-resolved-p promise5))
+    (is eq t        (promise:promise-rejected-p promise5))
+    (is eq t        (promise:promise-errored-p  promise5))
+    (of-type error  (promise:promise-error-obj  promise5))))
