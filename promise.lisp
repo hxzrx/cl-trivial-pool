@@ -281,56 +281,6 @@ This happens in a degenerated promise (a promise whose function has neither refe
   (do-errbacks promise)
   promise)
 
-#+:ignore
-(defmethod do-abnormal-status ((promise promise) status) ; did not use anymore
-  "Deal with work-item's statuses"
-  ;; :created :running :aborted :ready :finished :cancelled :rejected, and a new :errored
-  ;; :aborted, when an error is captured by thread-main without
-  ;; :errored, when something is called explicitly by reject, or an error is signaled
-  (case status
-    (:aborted (reject promise (make-promise-error :aborted "Aborted by thread pool.")))
-    (:rejected (reject promise (make-promise-error :rejected "Rejected by thread pool.")))
-    (:cancelled (reject promise (make-promise-error :cancelled "Cancelled by thread pool.")))
-    ;;(:errored (reject promise (make-promise-error :cancelled "Cancelled by thread pool."))) ; :errored should have been rejected
-    (otherwise t))
-  promise)
-
-#+:ignore
-(defmethod run-promise ((promise promise)) ; did not use anymore
-  "Run a promise in the current thread.
-Check to run first, then process all callbacks and errorbacks of the promise in order.
-Note: 1. invoking this method only when the promise has finished (The final result has got out or an error has signaled).
-      2. the slots of result, status, finished, errored-p, error-obj should have already been set.
-      3. although this method can be invoked in the main thread,
-         sending a promise to a thread pool is recommondated,
-         this method is invoked by resolve and is not exported."
-  (let ((status (get-status promise)))
-    (when (eq status :created)
-      (set-status promise :running)
-      (let ((new-result (multiple-value-list (funcall (work-item-fn promise)))))
-        (cond ((promisep (car new-result)) ; the promise should habe been rejected if an error was signaled
-               (apply #'resolve promise new-result))
-              ((null (work-item-result promise))
-               (apply #'resolve promise new-result))
-              ((promise-finished-p promise)
-               (format *debug-io* "The promise has been finished, promise:~d, value: ~d~%" promise new-result))
-              ((promise-resolved-p promise)
-               (format *debug-io* "The promise has been resolved, promise:~d, value: ~d~%" promise new-result))
-              ((promise-rejected-p promise)
-               (format *debug-io* "The promise has been rejected, promise:~d, value: ~d~%" promise new-result))
-              ((typep (car new-result) 'error)
-               (format *debug-io* "Error should have been handled in `run-promise`, when this was printed, there must be a bug, promise:~d, value: ~d~%" promise new-result))
-              (t (format *debug-io* "When this was printed, there may be a bug, promise:~d, value: ~d~%" promise new-result))))))
-  (do-abnormal-status promise (get-status promise))
-  ;;(do-callbacks promise) ; should only be calleb by resolve
-  ;;(do-errbacks promise)) ; should only be called by reject
-  promise)
-#+:ignore
-(defmethod run-promise :after ((promise promise))
-  (when (eq :running (get-status promise)) ; if error signaled in work-item-fn, the status will be changed
-    (set-status promise :finished)))
-
-
 ;;; the core resolve and reject method
 
 ;; resolve
