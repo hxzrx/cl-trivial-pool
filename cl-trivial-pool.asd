@@ -1,5 +1,5 @@
 (defsystem "cl-trivial-pool"
-  :version "0.4.0"
+  :version "0.4.1"
   :description "A common lisp thread pool implemented with atomic operations instead of locks in the worker threads' infinite loop."
   :author "He Xiang-zhi <xz.he@qq.com>"
   :license "MIT"
@@ -16,7 +16,7 @@
 
 
 (defsystem "cl-trivial-pool/tests"
-  :version "0.4.0"
+  :version "0.4.1"
   :author "He Xiang-zhi <xz.he@qq.com>"
   :license "MIT"
   :serial t
