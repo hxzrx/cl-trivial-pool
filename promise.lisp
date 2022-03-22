@@ -347,7 +347,8 @@ A promise can be rejected with anything while a condition is preferred since it 
     (with-condition-handling
         (lambda (err)
           (funcall (alexandria:curry #'reject work) err)
-          (return-from exit-on-condition err))
+          (reject work err)
+          (return-from exit-on-condition work))
       (let ((result% (multiple-value-list (funcall fn))))
         (unless (promise-resolved-p *promise*) ; will not enter here if errored
           (apply #'resolve *promise* result%)
