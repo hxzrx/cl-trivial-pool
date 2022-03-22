@@ -214,9 +214,10 @@ or nil if the work has not finished."
                                               (throw 'terminate-work err)))))
                       (restart-case
                           (let ((result (multiple-value-list (funcall (work-item-fn work)))))
-                            (unless (eq :finished (get-status work))
+                            #+:ignore(unless (eq :finished (get-status work))
                               (setf (work-item-result work) result))
                             (when (eq :running (get-status work)) ; the status may be modified during fn's executing
+                              (setf (work-item-result work) result) ;newly moved
                               (set-status work :finished))
                             (bt:condition-notify (work-item-cvar work)))
                         (default-restart ()

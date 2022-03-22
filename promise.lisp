@@ -159,9 +159,13 @@ by using with-condition-handling, errors will be handled with rejecte called."
                                  (let ((*promise* work))
                                    (with-condition-handling
                                        (lambda (err)
-                                         (funcall (alexandria:curry #'reject work) err) ; (reject work err)
+                                         (funcall (alexandria:curry #'reject work) err)
                                          (return-from exit-on-condition err))
-                                     (funcall fn work))))
+                                     (let ((result% (multiple-value-list (funcall fn work))))
+                                       (unless (promise-resolved-p *promise*) ; will not enter here if errored
+                                         (apply #'resolve *promise* result%)
+                                         (apply #'values result%))
+                                     ))))
                                bindings))
 
     work))
@@ -187,9 +191,12 @@ This is the preferred way to make a promise."
                                                 (let ((*promise* work))
                                                   (with-condition-handling
                                                       (lambda (err)
-                                                        (funcall (alexandria:curry #'reject work) err) ; (reject work err)
+                                                        (funcall (alexandria:curry #'reject work) err)
                                                         (return-from exit-on-condition err))
-                                                    (funcall fn work))))
+                                                    (let ((result% (multiple-value-list (funcall fn work))))
+                                                      (unless (promise-resolved-p *promise*) ; will not enter here if errored
+                                                        (apply #'resolve *promise* result%)
+                                                        (apply #'values result%))))))
                                               ,bindings))
      work))
 
@@ -233,6 +240,7 @@ And `attach-echoback' attach both callback and errback to the promise.
   (attach-errback  promise echoback-obj errback-fn)
   promise)
 
+#+:ignore
 (defmethod do-callbacks :before ((promise promise))
   "Check if some promise's status is :finished with a non-promise result while the finished-p slot is nil.
 This happens in a degenerated promise (a promise whose function has neither referenced to the promise object nor resolve/reject it)"
@@ -248,7 +256,7 @@ This happens in a degenerated promise (a promise whose function has neither refe
   (when (promise-finished-p promise)
     (with-slots (callbacks result) promise
       (unless (queue-empty-p callbacks)
-        (loop until (queue-empty-p callbacks) ; Oh, I've misused unless and trapped!
+        (loop until (queue-empty-p callbacks)
               do (let* ((callback (dequeue callbacks))
                         (callback-obj (car callback))
                         (callback-fn  (cadr callback)))
@@ -273,7 +281,8 @@ This happens in a degenerated promise (a promise whose function has neither refe
   (do-errbacks promise)
   promise)
 
-(defmethod do-abnormal-status ((promise promise) status)
+#+:ignore
+(defmethod do-abnormal-status ((promise promise) status) ; did not use anymore
   "Deal with work-item's statuses"
   ;; :created :running :aborted :ready :finished :cancelled :rejected, and a new :errored
   ;; :aborted, when an error is captured by thread-main without
@@ -286,8 +295,8 @@ This happens in a degenerated promise (a promise whose function has neither refe
     (otherwise t))
   promise)
 
-
-(defmethod run-promise ((promise promise))
+#+:ignore
+(defmethod run-promise ((promise promise)) ; did not use anymore
   "Run a promise in the current thread.
 Check to run first, then process all callbacks and errorbacks of the promise in order.
 Note: 1. invoking this method only when the promise has finished (The final result has got out or an error has signaled).
@@ -300,9 +309,9 @@ Note: 1. invoking this method only when the promise has finished (The final resu
       (set-status promise :running)
       (let ((new-result (multiple-value-list (funcall (work-item-fn promise)))))
         (cond ((promisep (car new-result)) ; the promise should habe been rejected if an error was signaled
-               (resolve promise new-result))
+               (apply #'resolve promise new-result))
               ((null (work-item-result promise))
-               (resolve promise new-result))
+               (apply #'resolve promise new-result))
               ((promise-finished-p promise)
                (format *debug-io* "The promise has been finished, promise:~d, value: ~d~%" promise new-result))
               ((promise-resolved-p promise)
@@ -316,7 +325,7 @@ Note: 1. invoking this method only when the promise has finished (The final resu
   ;;(do-callbacks promise) ; should only be calleb by resolve
   ;;(do-errbacks promise)) ; should only be called by reject
   promise)
-
+#+:ignore
 (defmethod run-promise :after ((promise promise))
   (when (eq :running (get-status promise)) ; if error signaled in work-item-fn, the status will be changed
     (set-status promise :finished)))
@@ -325,6 +334,7 @@ Note: 1. invoking this method only when the promise has finished (The final resu
 ;;; the core resolve and reject method
 
 ;; resolve
+
 (defmethod resolve-promise% ((promise promise) &rest args)
   "Resolve a promise with a final value, or another promise.
 If the promise is resolved with a promise, set the later to the forward."
@@ -333,53 +343,55 @@ If the promise is resolved with a promise, set the later to the forward."
   (if (promisep (car args))
       (let ((new-promise (car args)))
         (setf (svref (promise-forward promise) 1) new-promise)
-        (format t "---Raw promise forward set: ~d~%~%" promise)
         (setf (svref (promise-forward new-promise) 0) promise)
-        (format t "...Forwarded promise: ~d~%~%" new-promise)
-        (set-status new-promise :created) ; this setf deal with a promise fulfillment with itself
-        (format t "///Promise forward set: ~d~%~%" promise)
-        (run-promise new-promise))  ; can send it to the pool either, and if sent, should change its status to :created
+        (set-status new-promise :created) ; this may be a redundancy
+        (attach-echoback new-promise
+                         promise
+                         (lambda (promise &rest values)
+                           (apply #'resolve promise values))
+                         (lambda (promise condition) (reject promise condition)))
+        (add-work new-promise))
       (setf (slot-value promise 'finished-p) t))
-  (setf (slot-value promise 'resolved-p) t)
+  (setf (slot-value promise 'resolved-p) t) ; this slot can be modified if it's forward promise is rejected.
   promise)
 
 (defmethod resolve-promise% :after ((promise promise) &rest args)
   "Deal with the callbacks, and, if this promise is the tail of the chain, try to resolve the head."
-  (do-callbacks promise)
-  ;; eq denotes that it's a forwarded promise,
-  ;; the head is not compared, for the sake that one might resolve a promise with itself (may be useless)
+  (do-callbacks promise) ; do-callbacks checks finished-p
   (when (and (null (promisep (car args)))
-             (eq promise (promise-chain-next promise))
-             (null (eq (promise-chain-previous promise) (promise-chain-next promise)))) ; get rid of repeat solving
-    (apply #'resolve (promise-chain-previous promise) args)))   ; and resolve the head promise again.
+             (promisep (promise-chain-previous promise)))
+    (apply #'resolve (promise-chain-previous promise) args)))
 
 ;; reject
 (defmethod reject-promise% ((promise promise) condition)
-  "Reject a promise with a condition, set related slots, do the errbacks."
-  (set-result promise condition) ; will change status to :finished
+  "Reject a promise with a condition (or others), set related slots, do the errbacks."
+  (set-result promise condition)
   (set-status promise :errored)
-  (setf (slot-value promise 'error-obj) condition
+  (setf (slot-value promise 'resolved-p) nil ; should setf again since it may have been resolved by a forward promise
+        (slot-value promise 'finished-p) nil
+        (slot-value promise 'error-obj) condition
         (slot-value promise 'errored-p) t
         (slot-value promise 'rejected-p) t)
   promise)
 
 (defmethod reject-promise% :after ((promise promise) condition)
   "Deal with the errbacks, and, if this promise is the tail of the chain, reject the head."
-  (do-errbacks promise)
-  ;; eq denotes that this promise is a forwarded promise,
-  ;; the head is not compared, for the sake that one might reject a promise with itself (may be useless)
+  (do-errbacks promise) ; do-errbacks cheks errored-p
   (when (promisep (promise-chain-previous promise))
-    (reject (promise-chain-previous promise) condition)))   ; and reject the head promise again.
+    (reject (promise-chain-previous promise) condition))) ; the previous promise may have been resolved.
 
 (defmethod resolve ((promise promise) &rest args)
   "Resolve a promise with the final value, or another promise, and support resolving the promise with itself.
 Resolve is top to bottom, then bottom to top.
 The intermediate of the forward chain can be passed as I considered."
-  ;; do not add non-local exits to resolve :after methos since it will break echobacks
-  (format t "In resolve: promise: ~d~%~%" promise)
-  (format t "In resolve: args: ~d~%~%" (car args))
   (apply #'resolve-promise% promise args)
   promise)
+
+(defmethod resolve :after ((promise promise) &rest args)
+  "Doing this will not go on running the codes below resolve.
+Checking if current promise eq to *promise*, to avoid exiting from the echobacks chain."
+  (when (eq promise *promise*)
+    (apply #'signal-promise-resolving args)))
 
 (defmethod reject ((promise promise) condition)
   "Reject a promise with a condition instance.

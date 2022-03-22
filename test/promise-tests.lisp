@@ -34,8 +34,8 @@
 :explicit-resolve, resolved by invoking resolve.
 :reject-err, rejected by calling resolve with an error.
 :reject-non-err, rejected by calling resolve with non-error data.
-:return-promise, the returned value of this promise is another promise of type :simple, will be forwarded.
-:return-err-promise, the returned value of this promise is another promise of type :simple-err, will be forwarded.
+:return-simple-promise, the returned value of this promise is another promise of type :simple, will be forwarded.
+:return-simple-err-promise, the returned value of this promise is another promise of type :simple-err, will be forwarded.
 :empty, return an empty promise, can be used to test attach.
 "
   (ecase type
@@ -46,7 +46,7 @@
                                          (declare (ignore promise))
                                          (let* ((x (gen-0))
                                                 (y (/ 1 x)))
-                                           (format t "This cannot be reached, or there must be a bug!~%")
+                                           (format t "Printing this showed a bug, :simple-err promise!~%")
                                            y))
                                        :pool *test-promise-pool* :name "simple-error-promise"))
     (:explicit-resolve (promise:make-promise (lambda (promise)
@@ -54,23 +54,27 @@
                                                  (promise:resolve promise result)
                                                  ;; the following line will be printed now, is will be an enhancement.
                                                  (promise:signal-promise-resolving result)
-                                                 (format t "This should not be reached, or there must be a bug!~%")
+                                                 (format t "Printing this showed a bug!~%")
                                                  result))
                                              :pool *test-promise-pool* :name "explicit-resolve"))
     (:reject-err (promise:make-promise (lambda (promise)
                                          (promise:reject promise (promise:make-promise-error 123 "xx"))
-                                         (format t "This cannot be reached, or there must be a bug!~%"))
+                                         (format t "Printing this showed a bug!~%"))
                                        :pool *test-promise-pool* :name "explicit-reject-promise-err"))
     (:reject-non-err (promise:make-promise (lambda (promise)
                                              (promise:reject promise 123)
-                                             (format t "This cannot be reached, or there must be a bug!~%"))
+                                             (format t "Printing this showed a bug!~%"))
                                            :pool *test-promise-pool* :name "reject-with-ordinary-data"))
-    (:return-promise (promise:make-promise (lambda (promise)
-                                             (declare (ignore promise))
-                                             (promise-gen :simple))))
-    (:return-err-promise (promise:make-promise (lambda (promise)
-                                                 (declare (ignore promise))
-                                                 (promise-gen :simple-err))))
+    (:implicit-fulfill-with-simple-promise (promise:make-promise (lambda (promise)
+                                                                   (declare (ignore promise))
+                                                                   (promise-gen :simple))
+                                                                 :pool *test-promise-pool*
+                                                                 :name "implicit-fulfill-with-simple-promise"))
+    (:explicit-fulfill-with-simple-promise (promise:make-promise (lambda (promise)
+                                                                   (promise:resolve promise (promise-gen :simple))
+                                                                   (format t "printing this showed a bug!~%"))
+                                                                 :pool *test-promise-pool*
+                                                                 :name "explicit-fulfill-with-simple-promise"))
     (:empty (promise:make-empty-promise *test-promise-pool* "empty-promise"))))
 
 
@@ -174,8 +178,8 @@
     ;; degenerated promise
     (is-values (tpool:get-result simple-promise) (equal (list 6)) (eq t))
     (is eq :finished (tpool:get-status simple-promise))
-    (is eq nil (promise:promise-finished-p simple-promise)) ; will not be finished a normal work-item
-    (is eq nil (promise:promise-resolved-p simple-promise)) ; will not be resolved either
+    (is eq t   (promise:promise-finished-p simple-promise)) ; will not be finished a normal work-item
+    (is eq t   (promise:promise-resolved-p simple-promise)) ; will not be resolved either
     (is eq nil (promise:promise-rejected-p simple-promise))
     (is eq nil (promise:promise-errored-p  simple-promise))
     (is eq nil (promise:promise-error-obj  simple-promise))
@@ -284,16 +288,16 @@
     ;; degenerated promise
     (is-values (tpool:get-result simple-promise) (equal (list 6)) (eq t))
     (is eq :finished (tpool:get-status simple-promise))
-    (is eq nil (promise:promise-finished-p simple-promise)) ; will not be finished a normal work-item
-    (is eq nil (promise:promise-resolved-p simple-promise)) ; will not be resolved either
+    (is eq t   (promise:promise-finished-p simple-promise)) ; will not be finished a normal work-item
+    (is eq t   (promise:promise-resolved-p simple-promise)) ; will not be resolved either
     (is eq nil (promise:promise-rejected-p simple-promise))
     (is eq nil (promise:promise-errored-p  simple-promise))
     (is eq nil (promise:promise-error-obj  simple-promise))
     ;; degenerated promise with bindings
     (is-values (tpool:get-result simple-promise-with-bindings) (equal (list 6)) (eq t))
     (is eq :finished (tpool:get-status simple-promise-with-bindings))
-    (is eq nil (promise:promise-finished-p simple-promise-with-bindings)) ; will not be finished a normal work-item
-    (is eq nil (promise:promise-resolved-p simple-promise-with-bindings)) ; will not be resolved either
+    (is eq t   (promise:promise-finished-p simple-promise-with-bindings)) ; will not be finished a normal work-item
+    (is eq t   (promise:promise-resolved-p simple-promise-with-bindings)) ; will not be resolved either
     (is eq nil (promise:promise-rejected-p simple-promise-with-bindings))
     (is eq nil (promise:promise-errored-p  simple-promise-with-bindings))
     (is eq nil (promise:promise-error-obj  simple-promise-with-bindings))
@@ -392,30 +396,30 @@
                                                      :pool pool :name "reject-with-ordinary-data"))
          )
     (let ((this-promise simple-promise)
-                   (echo-1 (promise:make-empty-promise))
-                   (echo-2 (promise:make-empty-promise))
-                   (echo-3 (promise:make-empty-promise))
-                   (callback-fn (lambda (p &rest values) (apply #'promise:resolve p values)))
-                   (errback-fn (lambda (p err) (promise:reject p err))))
-               (finish (promise:attach-echoback this-promise echo-1 callback-fn errback-fn))
-               (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
-               (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
-               (tpool:add-work this-promise)
-               (sleep 0.0001)
-               (is eq :finished (tpool:get-status this-promise))
-               (is-values (tpool:get-result this-promise) (equal (list 6)) (eq t))
-               (is eq nil (promise:promise-resolved-p this-promise))   ; this degenerated promise did not been resolved,
-               (is eq nil (promise:promise-resolved-p echo-1))         ; so did it's echobacks,
-               (is eq nil (promise:promise-resolved-p echo-2))         ; this will be an enhancement in the future.
-               (is eq nil (promise:promise-resolved-p echo-3))
-               (is eq nil (promise:promise-rejected-p this-promise))   ; has not been rejected for the same reason
-               (is eq nil (promise:promise-rejected-p echo-1))
-               (is eq nil (promise:promise-rejected-p echo-2))
-               (is eq nil (promise:promise-rejected-p echo-3))
-               ;;(format t "~%~%this-promise: ~d~%" this-promise)
-               ;;(format t "~%echo-promise-1: ~d~%" echo-1)
-               ;;(format t "~%echo-promise-2: ~d~%" echo-2)
-               ;;(format t "~%echo-promise-3: ~d~%~%" echo-3)
+          (echo-1 (promise:make-empty-promise))
+          (echo-2 (promise:make-empty-promise))
+          (echo-3 (promise:make-empty-promise))
+          (callback-fn (lambda (p &rest values) (apply #'promise:resolve p values)))
+          (errback-fn (lambda (p err) (promise:reject p err))))
+      (finish (promise:attach-echoback this-promise echo-1 callback-fn errback-fn))
+      (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
+      (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
+      (tpool:add-work this-promise)
+      (sleep 0.0001)
+      (is eq :finished (tpool:get-status this-promise))
+      (is-values (tpool:get-result this-promise) (equal (list 6)) (eq t))
+      (is eq t   (promise:promise-resolved-p this-promise))   ; this degenerated promise did not been resolved,
+      (is eq t   (promise:promise-resolved-p echo-1))         ; so did it's echobacks,
+      (is eq t   (promise:promise-resolved-p echo-2))         ; this will be an enhancement in the future.
+      (is eq t   (promise:promise-resolved-p echo-3))
+      (is eq nil (promise:promise-rejected-p this-promise))   ; has not been rejected for the same reason
+      (is eq nil (promise:promise-rejected-p echo-1))
+      (is eq nil (promise:promise-rejected-p echo-2))
+      (is eq nil (promise:promise-rejected-p echo-3))
+      ;;(format t "~%~%this-promise: ~d~%" this-promise)
+      ;;(format t "~%echo-promise-1: ~d~%" echo-1)
+      ;;(format t "~%echo-promise-2: ~d~%" echo-2)
+      ;;(format t "~%echo-promise-3: ~d~%~%" echo-3)
       )
     (let ((this-promise simple-err-promise)
           (echo-1 (promise:make-empty-promise))
@@ -456,9 +460,9 @@
       (sleep 0.1)
       (is eq :finished (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise nil) (equal (list 6)) (eq t))
-      (is eq t   (promise:promise-resolved-p this-promise))   ; this degenerated promise did not been resolved,
-      (is eq t   (promise:promise-resolved-p echo-1))         ; so did it's echobacks,
-      (is eq t   (promise:promise-resolved-p echo-2))         ; this will be an enhancement in the future.
+      (is eq t   (promise:promise-resolved-p this-promise))
+      (is eq t   (promise:promise-resolved-p echo-1))
+      (is eq t   (promise:promise-resolved-p echo-2))
       (is eq t   (promise:promise-resolved-p echo-3))
       (is eq nil (promise:promise-rejected-p this-promise))
       (is eq nil (promise:promise-rejected-p echo-1))
@@ -547,3 +551,18 @@
       ;;(format t "~%echo-promise-2: ~d~%" echo-2)
       ;;(format t "~%echo-promise-3: ~d~%~%" echo-3)
       )))
+
+(define-test forward :parent promise
+  (let* ((promise-1-0 (promise-gen :implicit-fulfill-with-simple-promise))
+         (promise-1-1 (promise-gen :explicit-fulfill-with-simple-promise)))
+    (true (promise:promisep promise-1-0))
+    (true (promise:promisep promise-1-1))
+    (promise:add-work promise-1-0)
+    (promise:add-work promise-1-1)
+    (sleep 0.1)
+    (format t "promise1-0: ~d~%" promise-1-0)
+    (format t "promise1-0, forward: ~d~%" (promise::promise-forward promise-1-0))
+    (format t "promise1-1: ~d~%" promise-1-1)
+    (format t "promise1-1, forward: ~d~%" (promise::promise-forward promise-1-1))
+    ;; 先要解决simple-promise和siple-err-promise的resolve/reject问题
+    ))

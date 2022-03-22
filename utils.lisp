@@ -259,10 +259,11 @@ As well as, when in a degenerated promise, use this to resolve the promise"
                          (unless *debug-promise-on-error*
                            (funcall ,error-handler err)))))
               (promise:promise-resolve-condition (lambda (condition) ; used to resolve a promise that's not been resolved explicitly
-                                           (let ((val (promise::promise-condition-data condition)))
-                                             (format *debug-io* "~&The promise <~d> was resolved with <~d>.~%" *promise* val)
-                                             ;;(promise:resolve *promise* val)
-                                             (return-from exit-on-condition val)))))
+                                                   (let ((val (promise::promise-condition-data condition)))
+                                                     (format *debug-io* "~&The promise <~d> was resolved with <~d>.~%"
+                                                             *promise* val)
+                                                     ;;(promise:resolve *promise* val)
+                                                     (return-from exit-on-condition val)))))
            (restart-case
                (progn ,@body)
              (reject-promise ()
