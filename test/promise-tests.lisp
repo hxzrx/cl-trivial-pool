@@ -26,19 +26,18 @@
     (when (string= "WORKER-OF-" (subseq (sb-thread:thread-name thread) 0 10))
       (ignore-errors (bt:destroy-thread thread)))))
 
-
-(defun promise-gen (type)
-  "valid `type':
+(defun basic-promise-gen (type)
+  "Generate 6 basic promises which resolve/reject with non-promise objects,
+valid `type':
+:empty, return an empty promise, can be used to test attach, but do not send it to a thread pool.
 :simple, no resolve invoked, no rejecte invoked, no error signaled, degenerated to a normal work-item.
 :simpke-err, no resolve invoked, no rejecte invoked, error signaled, will be rejected automatically.
 :explicit-resolve, resolved by invoking resolve.
 :reject-err, rejected by calling resolve with an error.
 :reject-non-err, rejected by calling resolve with non-error data.
-:return-simple-promise, the returned value of this promise is another promise of type :simple, will be forwarded.
-:return-simple-err-promise, the returned value of this promise is another promise of type :simple-err, will be forwarded.
-:empty, return an empty promise, can be used to test attach.
 "
   (ecase type
+    (:empty (promise:make-empty-promise *test-promise-pool* "empty-promise-only-name-and-pool-spicified"))
     (:simple (promise:make-promise (lambda (promise)
                                      (declare (ignore promise)) (+ 1 2 3))
                                    :pool *test-promise-pool* :name "simple-promise"))
@@ -52,31 +51,108 @@
     (:explicit-resolve (promise:make-promise (lambda (promise)
                                                (let ((result (+ 1 2 3)))
                                                  (promise:resolve promise result)
-                                                 ;; the following line will be printed now, is will be an enhancement.
-                                                 (promise:signal-promise-resolving result)
-                                                 (format t "Printing this showed a bug!~%")
+                                                 ;;(promise:signal-promise-resolving result)
+                                                 (format t "Printing this showed a bug, :explicit-resolve promise!~%")
                                                  result))
                                              :pool *test-promise-pool* :name "explicit-resolve"))
     (:reject-err (promise:make-promise (lambda (promise)
                                          (promise:reject promise (promise:make-promise-error 123 "xx"))
-                                         (format t "Printing this showed a bug!~%"))
+                                         (format t "Printing this showed a bug, :reject-err promise!~%"))
                                        :pool *test-promise-pool* :name "explicit-reject-promise-err"))
     (:reject-non-err (promise:make-promise (lambda (promise)
                                              (promise:reject promise 123)
-                                             (format t "Printing this showed a bug!~%"))
-                                           :pool *test-promise-pool* :name "reject-with-ordinary-data"))
-    (:implicit-fulfill-with-simple-promise (promise:make-promise (lambda (promise)
-                                                                   (declare (ignore promise))
-                                                                   (promise-gen :simple))
-                                                                 :pool *test-promise-pool*
-                                                                 :name "implicit-fulfill-with-simple-promise"))
-    (:explicit-fulfill-with-simple-promise (promise:make-promise (lambda (promise)
-                                                                   (promise:resolve promise (promise-gen :simple))
-                                                                   (format t "printing this showed a bug!~%"))
-                                                                 :pool *test-promise-pool*
-                                                                 :name "explicit-fulfill-with-simple-promise"))
-    (:empty (promise:make-empty-promise *test-promise-pool* "empty-promise"))))
+                                             (format t "Printing this showed a bug, :reject-non-err promise!~%"))
+                                           :pool *test-promise-pool* :name "reject-with-ordinary-data"))))
 
+(defun promised-promise-gen (type)
+  "combination of several basic promises above: simple, simple-err, explicit-resolve,
+as well as reject with another promise.
+return a promise that will be fulfilled with another promise.
+:simple-err is not applicable here since it's rejected with error signaled."
+  (ecase type
+    ;; simple | simple, simple-err, explicit-resolve, reject-err, reject-non-err
+    (:simple/simple (promise:make-promise (lambda (promise)
+                                            (declare (ignore promise))
+                                            (basic-promise-gen :simple))
+                                          :pool *test-promise-pool* :name "simple/simple"))
+    (:simple/simple-err (promise:make-promise (lambda (promise)
+                                                (declare (ignore promise))
+                                                (basic-promise-gen :simple-err))
+                                              :pool *test-promise-pool* :name "simple/simple-err"))
+    (:simple/explicit-resolve (promise:make-promise (lambda (promise)
+                                                      (declare (ignore promise))
+                                                      (basic-promise-gen :explicit-resolve))
+                                                    :pool *test-promise-pool* :name "simple/explicit-resolve"))
+    (:simple/reject-err (promise:make-promise (lambda (promise)
+                                                (declare (ignore promise))
+                                                (basic-promise-gen :reject-err))
+                                              :pool *test-promise-pool* :name "simple/reject-err"))
+    (:simple/reject-non-err (promise:make-promise (lambda (promise)
+                                                    (declare (ignore promise))
+                                                    (basic-promise-gen :reject-non-err))
+                                                  :pool *test-promise-pool* :name "simple/reject-non-err"))
+    ;; explicit-resolve | simple, simple-err, explicit-resolve, reject-err, reject-non-err
+    (:explicit-resolve/simple
+     (promise:make-promise (lambda (promise)
+                             (let ((result (basic-promise-gen :simple)))
+                               (promise:resolve promise result)
+                               ;;(promise:signal-promise-resolving result)
+                               (format t "Printing this showed a bug, :explicit-resolve/simple promise!~%")
+                               result))
+                           :pool *test-promise-pool* :name "explicit-resolve/simple"))
+    (:explicit-resolve/simple-err
+     (promise:make-promise (lambda (promise)
+                             (let ((result (basic-promise-gen :simple-err)))
+                               (promise:resolve promise result)
+                               ;;(promise:signal-promise-resolving result)
+                               (format t "Printing this showed a bug, :explicit-resolve/simple-err promise!~%")
+                               result))
+                           :pool *test-promise-pool* :name "explicit-resolve/simple-err"))
+    (:explicit-resolve/explicit-resolve
+     (promise:make-promise (lambda (promise)
+                             (let ((result (basic-promise-gen :explicit-resolve)))
+                               (promise:resolve promise result)
+                               ;;(promise:signal-promise-resolving result)
+                               (format t "Printing this showed a bug, :explicit-resolve/explicit-resolve promise!~%")
+                               result))
+                           :pool *test-promise-pool* :name "explicit-resolve/explicit-resolve"))
+    (:explicit-resolve/reject-err
+     (promise:make-promise (lambda (promise)
+                             (let ((result (basic-promise-gen :reject-err)))
+                               (promise:resolve promise result)
+                               ;;(promise:signal-promise-resolving result)
+                               (format t "Printing this showed a bug, :explicit-resolve/reject-err promise!~%")
+                               result))
+                           :pool *test-promise-pool* :name "explicit-resolve/reject-err"))
+    (:explicit-resolve/reject-non-err
+     (promise:make-promise (lambda (promise)
+                             (let ((result (basic-promise-gen :reject-non-err)))
+                               (promise:resolve promise result)
+                               ;;(promise:signal-promise-resolving result)
+                               (format t "Printing this showed a bug, :explicit-resolve/reject-non-err promise!~%")
+                               result))
+                           :pool *test-promise-pool* :name "explicit-resolve/reject-non-err"))
+    ;; reject | simple, simple-err, explicit-resolve, reject-err, reject-non-err
+    (:reject/simple (promise:make-promise (lambda (promise)
+                                            (promise:reject promise (basic-promise-gen :simple))
+                                            (format t "Printing this showed a bug, :reject/simple promise!~%"))
+                                          :pool *test-promise-pool* :name "reject/simple"))
+    (:reject/simple-err (promise:make-promise (lambda (promise)
+                                                (promise:reject promise (basic-promise-gen :simple-err))
+                                                (format t "Printing this showed a bug, :reject/simple-err promise!~%"))
+                                              :pool *test-promise-pool* :name "reject/simple-err"))
+    (:reject/explicit-resolve (promise:make-promise (lambda (promise)
+                                                      (promise:reject promise (basic-promise-gen :explicit-resolve))
+                                                      (format t "Printing this showed a bug, :reject/explicit-resolve promise!~%"))
+                                                    :pool *test-promise-pool* :name "reject/explicit-resolve"))
+    (:reject/reject-err (promise:make-promise (lambda (promise)
+                                                (promise:reject promise (basic-promise-gen :reject-err))
+                                                (format t "Printing this showed a bug, :reject/reject-err promise!~%"))
+                                              :pool *test-promise-pool* :name "reject/reject-err"))
+    (:reject/reject-non-err (promise:make-promise (lambda (promise)
+                                                    (promise:reject promise (basic-promise-gen :reject-non-err))
+                                                    (format t "Printing this showed a bug, :reject/reject-non-err promise!~%"))
+                                                  :pool *test-promise-pool* :name "reject/reject-non-err"))))
 
 ;;; -------
 
@@ -178,8 +254,8 @@
     ;; degenerated promise
     (is-values (tpool:get-result simple-promise) (equal (list 6)) (eq t))
     (is eq :finished (tpool:get-status simple-promise))
-    (is eq t   (promise:promise-finished-p simple-promise)) ; will not be finished a normal work-item
-    (is eq t   (promise:promise-resolved-p simple-promise)) ; will not be resolved either
+    (is eq t   (promise:promise-finished-p simple-promise))
+    (is eq t   (promise:promise-resolved-p simple-promise))
     (is eq nil (promise:promise-rejected-p simple-promise))
     (is eq nil (promise:promise-errored-p  simple-promise))
     (is eq nil (promise:promise-error-obj  simple-promise))
@@ -288,16 +364,16 @@
     ;; degenerated promise
     (is-values (tpool:get-result simple-promise) (equal (list 6)) (eq t))
     (is eq :finished (tpool:get-status simple-promise))
-    (is eq t   (promise:promise-finished-p simple-promise)) ; will not be finished a normal work-item
-    (is eq t   (promise:promise-resolved-p simple-promise)) ; will not be resolved either
+    (is eq t   (promise:promise-finished-p simple-promise))
+    (is eq t   (promise:promise-resolved-p simple-promise))
     (is eq nil (promise:promise-rejected-p simple-promise))
     (is eq nil (promise:promise-errored-p  simple-promise))
     (is eq nil (promise:promise-error-obj  simple-promise))
     ;; degenerated promise with bindings
     (is-values (tpool:get-result simple-promise-with-bindings) (equal (list 6)) (eq t))
     (is eq :finished (tpool:get-status simple-promise-with-bindings))
-    (is eq t   (promise:promise-finished-p simple-promise-with-bindings)) ; will not be finished a normal work-item
-    (is eq t   (promise:promise-resolved-p simple-promise-with-bindings)) ; will not be resolved either
+    (is eq t   (promise:promise-finished-p simple-promise-with-bindings))
+    (is eq t   (promise:promise-resolved-p simple-promise-with-bindings))
     (is eq nil (promise:promise-rejected-p simple-promise-with-bindings))
     (is eq nil (promise:promise-errored-p  simple-promise-with-bindings))
     (is eq nil (promise:promise-error-obj  simple-promise-with-bindings))
@@ -405,14 +481,14 @@
       (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
       (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
       (tpool:add-work this-promise)
-      (sleep 0.0001)
+      (sleep 0.01)
       (is eq :finished (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise) (equal (list 6)) (eq t))
-      (is eq t   (promise:promise-resolved-p this-promise))   ; this degenerated promise did not been resolved,
-      (is eq t   (promise:promise-resolved-p echo-1))         ; so did it's echobacks,
-      (is eq t   (promise:promise-resolved-p echo-2))         ; this will be an enhancement in the future.
+      (is eq t   (promise:promise-resolved-p this-promise))
+      (is eq t   (promise:promise-resolved-p echo-1))
+      (is eq t   (promise:promise-resolved-p echo-2))
       (is eq t   (promise:promise-resolved-p echo-3))
-      (is eq nil (promise:promise-rejected-p this-promise))   ; has not been rejected for the same reason
+      (is eq nil (promise:promise-rejected-p this-promise))
       (is eq nil (promise:promise-rejected-p echo-1))
       (is eq nil (promise:promise-rejected-p echo-2))
       (is eq nil (promise:promise-rejected-p echo-3))
@@ -431,7 +507,7 @@
       (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
       (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
       (tpool:add-work this-promise)
-      (sleep 0.0001)
+      (sleep 0.01)
       (is eq :errored (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise) (eql nil) (eq nil))
       (is eq nil (promise:promise-resolved-p this-promise))
@@ -457,7 +533,7 @@
       (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
       (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
       (tpool:add-work this-promise)
-      (sleep 0.1)
+      (sleep 0.01)
       (is eq :finished (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise nil) (equal (list 6)) (eq t))
       (is eq t   (promise:promise-resolved-p this-promise))
@@ -483,7 +559,7 @@
       (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
       (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
       (tpool:add-work this-promise)
-      (sleep 0.1)
+      (sleep 0.01)
       (is eq :errored (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise nil) (eq nil) (eq nil))
       (is eq nil (promise:promise-resolved-p this-promise))
@@ -509,7 +585,7 @@
       (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
       (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
       (tpool:add-work this-promise)
-      (sleep 0.1)
+      (sleep 0.01)
       (is eq :errored (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise nil) (eq nil) (eq nil))
       (is eq nil (promise:promise-resolved-p this-promise))
@@ -535,7 +611,7 @@
       (finish (promise:attach-echoback this-promise echo-2 callback-fn errback-fn))
       (finish (promise:attach-echoback this-promise echo-3 callback-fn errback-fn))
       (tpool:add-work this-promise)
-      (sleep 0.1)
+      (sleep 0.01)
       (is eq :errored (tpool:get-status this-promise))
       (is-values (tpool:get-result this-promise nil) (eq nil) (eq nil))
       (is eq nil (promise:promise-resolved-p this-promise))
@@ -553,16 +629,186 @@
       )))
 
 (define-test forward :parent promise
-  (let* ((promise-1-0 (promise-gen :implicit-fulfill-with-simple-promise))
-         (promise-1-1 (promise-gen :explicit-fulfill-with-simple-promise)))
-    (true (promise:promisep promise-1-0))
-    (true (promise:promisep promise-1-1))
-    (promise:add-work promise-1-0)
-    (promise:add-work promise-1-1)
+  ;; subset of the combinations of simple, simple-err, explicit-resolve, reject-err, reject-non-err
+  (let* ((simple/simple           (promised-promise-gen :simple/simple))
+         (simple/simple-err       (promised-promise-gen :simple/simple-err))
+         (simple/explicit-resolve (promised-promise-gen :simple/explicit-resolve))
+         (simple/reject-err       (promised-promise-gen :simple/reject-err))
+         (simple/reject-non-err   (promised-promise-gen :simple/reject-non-err))
+
+         (explicit-resolve/simple           (promised-promise-gen :explicit-resolve/simple))
+         (explicit-resolve/simple-err       (promised-promise-gen :explicit-resolve/simple-err))
+         (explicit-resolve/explicit-resolve (promised-promise-gen :explicit-resolve/explicit-resolve))
+         (explicit-resolve/reject-err       (promised-promise-gen :explicit-resolve/reject-err))
+         (explicit-resolve/reject-non-err   (promised-promise-gen :explicit-resolve/reject-non-err))
+
+         (reject/simple           (promised-promise-gen :reject/simple))
+         (reject/simple-err       (promised-promise-gen :reject/simple-err))
+         (reject/explicit-resolve (promised-promise-gen :reject/explicit-resolve))
+         (reject/reject-err       (promised-promise-gen :reject/reject-err))
+         (reject/reject-non-err   (promised-promise-gen :reject/reject-non-err)))
+
+    (true (promise:promisep simple/simple))
+    (true (promise:promisep simple/simple-err))
+    (true (promise:promisep simple/explicit-resolve))
+    (true (promise:promisep simple/reject-err))
+    (true (promise:promisep simple/reject-non-err))
+
+    (true (promise:promisep explicit-resolve/simple))
+    (true (promise:promisep explicit-resolve/simple-err))
+    (true (promise:promisep explicit-resolve/explicit-resolve))
+    (true (promise:promisep explicit-resolve/reject-err))
+    (true (promise:promisep explicit-resolve/reject-non-err))
+
+    (true (promise:promisep reject/simple))
+    (true (promise:promisep reject/simple-err))
+    (true (promise:promisep reject/explicit-resolve))
+    (true (promise:promisep reject/reject-err))
+    (true (promise:promisep reject/reject-non-err))
+
+    (finish (promise:add-work simple/simple))
+    (finish (promise:add-work simple/simple-err))
+    (finish (promise:add-work simple/explicit-resolve))
+    (finish (promise:add-work simple/reject-err))
+    (finish (promise:add-work simple/reject-non-err))
+
+    (finish (promise:add-work explicit-resolve/simple))
+    (finish (promise:add-work explicit-resolve/simple-err))
+    (finish (promise:add-work explicit-resolve/explicit-resolve))
+    (finish (promise:add-work explicit-resolve/reject-err))
+    (finish (promise:add-work explicit-resolve/reject-non-err))
+
+    (finish (promise:add-work reject/simple))
+    (finish (promise:add-work reject/simple-err))
+    (finish (promise:add-work reject/explicit-resolve))
+    (finish (promise:add-work reject/reject-err))
+    (finish (promise:add-work reject/reject-non-err))
+
     (sleep 0.1)
-    (format t "promise1-0: ~d~%" promise-1-0)
-    (format t "promise1-0, forward: ~d~%" (promise::promise-forward promise-1-0))
-    (format t "promise1-1: ~d~%" promise-1-1)
-    (format t "promise1-1, forward: ~d~%" (promise::promise-forward promise-1-1))
-    ;; 先要解决simple-promise和siple-err-promise的resolve/reject问题
+
+    ;; test for simple/* combination
+    (is-values (tpool:get-result simple/simple) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status simple/simple))
+    (is eq t   (promise:promise-finished-p simple/simple))
+    (is eq t   (promise:promise-resolved-p simple/simple))
+    (is eq nil (promise:promise-rejected-p simple/simple))
+    (is eq nil (promise:promise-errored-p  simple/simple))
+    (is eq nil (promise:promise-error-obj  simple/simple))
+
+    (is-values (tpool:get-result simple/simple-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status simple/simple-err))
+    (is eq nil (promise:promise-finished-p simple/simple-err))
+    (is eq nil (promise:promise-resolved-p simple/simple-err))
+    (is eq t   (promise:promise-rejected-p simple/simple-err))
+    (is eq t   (promise:promise-errored-p  simple/simple-err))
+    (of-type error (promise:promise-error-obj simple/simple-err))
+
+    (is-values (tpool:get-result simple/explicit-resolve) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status simple/explicit-resolve))
+    (is eq t   (promise:promise-finished-p simple/explicit-resolve))
+    (is eq t   (promise:promise-resolved-p simple/explicit-resolve))
+    (is eq nil (promise:promise-rejected-p simple/explicit-resolve))
+    (is eq nil (promise:promise-errored-p  simple/explicit-resolve))
+    (is eq nil (promise:promise-error-obj  simple/explicit-resolve))
+
+    (is-values (tpool:get-result simple/reject-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status simple/reject-err))
+    (is eq nil (promise:promise-finished-p simple/reject-err))
+    (is eq nil (promise:promise-resolved-p simple/reject-err))
+    (is eq t   (promise:promise-rejected-p simple/reject-err))
+    (is eq t   (promise:promise-errored-p  simple/reject-err))
+    (of-type error (promise:promise-error-obj simple/reject-err))
+
+    (is-values (tpool:get-result simple/reject-non-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status simple/reject-non-err))
+    (is eq nil (promise:promise-finished-p simple/reject-non-err))
+    (is eq nil (promise:promise-resolved-p simple/reject-non-err))
+    (is eq t   (promise:promise-rejected-p simple/reject-non-err))
+    (is eq t   (promise:promise-errored-p  simple/reject-non-err))
+    (of-type error (promise:promise-error-obj simple/reject-non-err))
+    ;; -------
+
+    ;; test for explicit-resolve/* combination
+    (is-values (tpool:get-result explicit-resolve/simple) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status explicit-resolve/simple))
+    (is eq t   (promise:promise-finished-p explicit-resolve/simple))
+    (is eq t   (promise:promise-resolved-p explicit-resolve/simple))
+    (is eq nil (promise:promise-rejected-p explicit-resolve/simple))
+    (is eq nil (promise:promise-errored-p  explicit-resolve/simple))
+    (is eq nil (promise:promise-error-obj  explicit-resolve/simple))
+
+    (is-values (tpool:get-result explicit-resolve/simple-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status explicit-resolve/simple-err))
+    (is eq nil (promise:promise-finished-p explicit-resolve/simple-err))
+    (is eq nil (promise:promise-resolved-p explicit-resolve/simple-err))
+    (is eq t   (promise:promise-rejected-p explicit-resolve/simple-err))
+    (is eq t   (promise:promise-errored-p  explicit-resolve/simple-err))
+    (of-type error (promise:promise-error-obj explicit-resolve/simple-err))
+
+    (is-values (tpool:get-result explicit-resolve/explicit-resolve) (equal (list 6)) (eq t))
+    (is eq :finished (tpool:get-status explicit-resolve/explicit-resolve))
+    (is eq t   (promise:promise-finished-p explicit-resolve/explicit-resolve))
+    (is eq t   (promise:promise-resolved-p explicit-resolve/explicit-resolve))
+    (is eq nil (promise:promise-rejected-p explicit-resolve/explicit-resolve))
+    (is eq nil (promise:promise-errored-p  explicit-resolve/explicit-resolve))
+    (is eq nil (promise:promise-error-obj  explicit-resolve/explicit-resolve))
+
+    (is-values (tpool:get-result explicit-resolve/reject-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status explicit-resolve/reject-err))
+    (is eq nil (promise:promise-finished-p explicit-resolve/reject-err))
+    (is eq nil (promise:promise-resolved-p explicit-resolve/reject-err))
+    (is eq t   (promise:promise-rejected-p explicit-resolve/reject-err))
+    (is eq t   (promise:promise-errored-p  explicit-resolve/reject-err))
+    (of-type error (promise:promise-error-obj explicit-resolve/reject-err))
+
+    (is-values (tpool:get-result explicit-resolve/reject-non-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status explicit-resolve/reject-non-err))
+    (is eq nil (promise:promise-finished-p explicit-resolve/reject-non-err))
+    (is eq nil (promise:promise-resolved-p explicit-resolve/reject-non-err))
+    (is eq t   (promise:promise-rejected-p explicit-resolve/reject-non-err))
+    (is eq t   (promise:promise-errored-p  explicit-resolve/reject-non-err))
+    (of-type error (promise:promise-error-obj explicit-resolve/reject-non-err))
+    ;; -------
+
+    ;; test for reject/* combination
+    (is-values (tpool:get-result reject/simple) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status reject/simple))
+    (is eq nil      (promise:promise-finished-p reject/simple))
+    (is eq nil      (promise:promise-resolved-p reject/simple))
+    (is eq t        (promise:promise-rejected-p reject/simple))
+    (is eq t        (promise:promise-errored-p  reject/simple))
+    (of-type error  (promise:promise-error-obj  reject/simple))
+
+    (is-values (tpool:get-result reject/simple-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status reject/simple-err))
+    (is eq nil      (promise:promise-finished-p reject/simple-err))
+    (is eq nil      (promise:promise-resolved-p reject/simple-err))
+    (is eq t        (promise:promise-rejected-p reject/simple-err))
+    (is eq t        (promise:promise-errored-p  reject/simple-err))
+    (of-type error  (promise:promise-error-obj  reject/simple-err))
+
+    (is-values (tpool:get-result reject/explicit-resolve) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status reject/explicit-resolve))
+    (is eq nil      (promise:promise-finished-p reject/explicit-resolve))
+    (is eq nil      (promise:promise-resolved-p reject/explicit-resolve))
+    (is eq t        (promise:promise-rejected-p reject/explicit-resolve))
+    (is eq t        (promise:promise-errored-p  reject/explicit-resolve))
+    (of-type error  (promise:promise-error-obj  reject/explicit-resolve))
+
+    (is-values (tpool:get-result reject/reject-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status reject/reject-err))
+    (is eq nil      (promise:promise-finished-p reject/reject-err))
+    (is eq nil      (promise:promise-resolved-p reject/reject-err))
+    (is eq t        (promise:promise-rejected-p reject/reject-err))
+    (is eq t        (promise:promise-errored-p  reject/reject-err))
+    (of-type error  (promise:promise-error-obj  reject/reject-err))
+
+    (is-values (tpool:get-result reject/reject-non-err) (eql nil) (eql nil))
+    (is eq :errored (tpool:get-status reject/reject-non-err))
+    (is eq nil      (promise:promise-finished-p reject/reject-non-err))
+    (is eq nil      (promise:promise-resolved-p reject/reject-non-err))
+    (is eq t        (promise:promise-rejected-p reject/reject-non-err))
+    (is eq t        (promise:promise-errored-p  reject/reject-non-err))
+    (of-type error  (promise:promise-error-obj  reject/reject-non-err))
+
     ))
