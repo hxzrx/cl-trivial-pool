@@ -412,31 +412,22 @@ A promise can be rejected with anything while a condition is preferred since it 
 
 (defun promisify-fn (fn &key (pool *default-thread-pool*) (name (string (gensym "FN-PROMISIFIED-"))))
   "Turns any value or set of values into a promise, unless a promise is passed in which case it is returned."
-  (let ((promise (make-empty-promise pool name)))
+  (let* ((work (make-empty-promise pool name))
+         (*promise* work))
     (with-condition-handling
         (lambda (err)
-          (reject promise err)
-          (do-errbacks promise)
-          (return-from exit-on-condition))
-      (let* ((vals (multiple-value-list (funcall fn)))
-             (promise-maybe (car vals)))
-        (if (promisep promise-maybe)
-            (setf promise promise-maybe)
-            (apply 'resolve promise vals))))
-    promise))
+          (funcall (alexandria:curry #'reject work) err)
+          (return-from exit-on-condition err))
+      (let ((result% (multiple-value-list (funcall fn))))
+        (unless (promise-resolved-p *promise*) ; will not enter here if errored
+          (apply #'resolve *promise* result%)
+          (apply #'values result%))))
+    work))
 
 (defmacro promisify-form (&rest forms)
   "Turns the forms into a nullary function, the encapsulate it with promisify-fn and finally return a promise."
-  ;; (promisify 1)
-  ;; (promisify (+ 1 1))
-  ;; (promisify (error "xx"))
+  ;; (promisify-form 1)
+  ;; (promisify-form (+ 1 1))
+  ;; (promisify-form (error "xx"))
   `(promisify-fn (lambda ()
                    ,@forms)))
-
-
-#+:ignore
-(defmethod find-forward ((promise promise)) ; not been used
-  "Check if this promise has been forwarded.
-Return nil if it has no forward promise, else return the forwarded promise object.
-Note that promises in a chain shared one forward, the intermediate promise takes no effect in fact."
-  (svref (promise-forward promise) 1))
