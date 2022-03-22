@@ -8,8 +8,9 @@
                         (:predicate thread-pool-p))
   (name              (string (gensym "THREAD-POOL-")) :type string)
   (initial-bindings  nil            :type list)
-  (lock              (bt:make-lock "THREAD-POOL-LOCK"))
-  (cvar              (bt:make-condition-variable :name "THREAD-POOL-CVAR"))
+  (lock              (bt:make-lock "THREAD-POOL-PICKING-WORK-ITEM-LOCK"))
+  (cvar              (bt:make-condition-variable :name "THREAD-POOL-PICKING-WORK-ITEM-CVAR"))
+  (lock-add-thread   (bt:make-lock "THREAD-POOL-ADD-THREAD-LOCK"))
   (backlog           (make-queue))
   (max-worker-num    *default-worker-num* :type fixnum)       ; num of worker threads
   (thread-table      (make-hash)    :type hash-table)         ; may have some dead threads due to gc
@@ -215,7 +216,7 @@ or nil if the work has not finished."
                       (restart-case
                           (let ((result (multiple-value-list (funcall (work-item-fn work)))))
                             #+:ignore(unless (eq :finished (get-status work))
-                              (setf (work-item-result work) result))
+                                       (setf (work-item-result work) result))
                             (when (eq :running (get-status work)) ; the status may be modified during fn's executing
                               (setf (work-item-result work) result) ;newly moved
                               (set-status work :finished))
@@ -229,7 +230,7 @@ or nil if the work has not finished."
               (destroy-thread-forced self))))))
 
 (defun add-thread (pool)
-  "Add a thread to a thread pool."
+  "Add a thread to a thread pool regardless of how many threads there are."
   (when (> (thread-pool-max-worker-num pool)
            (+ (thread-pool-working-num pool) (thread-pool-idle-num pool)))
     (prog1 (atomic-incf (thread-pool-working-num pool))
@@ -259,17 +260,18 @@ thread pool's initial-bindings."
                :status :ready
                :name name
                :desc desc)))
-    (with-slots (backlog max-worker-num working-num idle-num) pool
+    (with-slots (backlog max-worker-num working-num idle-num lock-add-thread) pool
       (when (thread-pool-shutdown-p pool)
         (error "Attempted to add work item to a shut down thread pool ~S" pool))
       (enqueue work backlog)
-      (when (and (<= (thread-pool-idle-num pool) 0)
-                 (< (+ working-num idle-num) max-worker-num))
-        (setf (gethash (gensym) (thread-pool-thread-table pool))
-              (bt:make-thread (lambda () (thread-pool-main pool))
-                              :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
-                              :initial-bindings (thread-pool-initial-bindings pool)))
-        (atomic-incf (thread-pool-working-num pool)))
+      (bt:with-lock-held (lock-add-thread)
+        (when (and (<= (thread-pool-idle-num pool) 0)
+                   (< (+ working-num idle-num) max-worker-num))
+          (setf (gethash (gensym) (thread-pool-thread-table pool))
+                (bt:make-thread (lambda () (thread-pool-main pool))
+                                :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
+                                :initial-bindings (thread-pool-initial-bindings pool)))
+          (atomic-incf (thread-pool-working-num pool))))
       (bt:condition-notify (thread-pool-cvar pool)))
     work))
 
@@ -292,20 +294,21 @@ Returns a list of the work items added."
   (if (thread-pool-p (work-item-pool work))
       (setf pool (work-item-pool work))
       (setf (slot-value work 'pool) pool))
-  (with-slots (backlog max-worker-num working-num idle-num) pool
+  (with-slots (backlog max-worker-num working-num idle-num lock-add-thread) pool
     (when (thread-pool-shutdown-p pool)
       (error "Attempted to add work item to a shutted down thread pool ~S" pool))
     (unless (eq :created (get-status work))
       (warn "Attempted to add a '~s' work item to a thread pool ~d." (get-status work) work))
     (setf (atomic-place (work-item-status work)) :ready)
     (enqueue work backlog)
-    (when (and (= (thread-pool-idle-num pool) 0)
-               (< (+ working-num idle-num) max-worker-num))
-      (setf (gethash (gensym) (thread-pool-thread-table pool))
-            (bt:make-thread (lambda () (thread-pool-main pool))
-                            :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
-                            :initial-bindings (thread-pool-initial-bindings pool)))
-      (atomic-incf (thread-pool-working-num pool)))
+    (bt:with-lock-held (lock-add-thread)
+      (when (and (= (thread-pool-idle-num pool) 0)
+                 (< (+ working-num idle-num) max-worker-num))
+        (setf (gethash (gensym) (thread-pool-thread-table pool))
+              (bt:make-thread (lambda () (thread-pool-main pool))
+                              :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
+                              :initial-bindings (thread-pool-initial-bindings pool)))
+        (atomic-incf (thread-pool-working-num pool))))
     (bt:condition-notify (thread-pool-cvar pool)))
   work)
 
