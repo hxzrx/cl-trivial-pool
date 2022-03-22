@@ -66,8 +66,7 @@
   (error 'promise-error :data data :reason reason))
 
 (defun signal-promise-resolving (value)
-  "signal this condition to make a non-local exit.
-this function is suggested to be invoked explicity after calling resolve and do not want to execute the codes there after."
+  "signal this condition to make a non-local exit."
   (signal 'promise-resolve-condition :data value))
 
 ;;; promise class definition
@@ -90,11 +89,6 @@ this function is suggested to be invoked explicity after calling resolve and do 
    (errored-p  :initarg :errored-p  :initform nil :accessor promise-errored-p)
    (error-obj  :initarg :error-obj  :initform nil :accessor promise-error-obj)
    ))
-
-#+:ignore ; forward charin do not share the same slot
-(defmethod initialize-instance :after ((promise promise) &key &allow-other-keys)
-  (with-slots (forward) promise
-    (setf (svref forward 0) promise)))
 
 (defun inspect-promise (promise)
   "Return a detail description of the promise."
@@ -167,7 +161,6 @@ by using with-condition-handling, errors will be handled with rejecte called."
                                          (apply #'values result%))
                                      ))))
                                bindings))
-
     work))
 
 (defmacro with-promise ((promise &key (pool *default-thread-pool*) bindings (name (string (gensym "PROMISE-"))) desc)
@@ -186,7 +179,6 @@ This is the preferred way to make a promise."
                                               :desc ,desc)
                               'promise))
           (fn (make-unary (,promise) ,@body)))
-     ;;( setf (work-item-fn work) (wrap-bindings fn ,bindings work))
      (setf (work-item-fn work) (wrap-bindings (lambda ()
                                                 (let ((*promise* work))
                                                   (with-condition-handling
@@ -226,8 +218,7 @@ If a promise is chained to another promise, the callback should designed to fulf
   "Enqueue an error callback to the promise.
 An error callback is a length-2 list whose car is any object (may be another promise, or even be nil),
 and whose cadr is a function that accepts exactly two args:
-   the callbacked object, and the error-obj of the promise. (lambda (obj err) ... )
-"
+   the callbacked object, and the error-obj of the promise. (lambda (obj err) ... )"
   (enqueue (list errback-to errback-fn)
            (slot-value promise 'errbacks))
   promise)
@@ -239,17 +230,6 @@ And `attach-echoback' attach both callback and errback to the promise.
   (attach-callback promise echoback-obj callback-fn)
   (attach-errback  promise echoback-obj errback-fn)
   promise)
-
-#+:ignore
-(defmethod do-callbacks :before ((promise promise))
-  "Check if some promise's status is :finished with a non-promise result while the finished-p slot is nil.
-This happens in a degenerated promise (a promise whose function has neither referenced to the promise object nor resolve/reject it)"
-  ;; this is a scratchy patch, the code can be placed on a better place!
-  ;; can put it in the clean form or unwind-protect when making a promise
-  (when (and (eq :finished (get-status promise))
-             (null (promise-finished-p promise))
-             (null (promisep (car (get-result promise))))) ; add null, 03/21
-    (setf (slot-value promise 'finished-p) t)))
 
 (defmethod do-callbacks ((promise promise))
   "Deal with all callbacks"
@@ -281,10 +261,10 @@ This happens in a degenerated promise (a promise whose function has neither refe
   (do-errbacks promise)
   promise)
 
+
 ;;; the core resolve and reject method
 
 ;; resolve
-
 (defmethod resolve-promise% ((promise promise) &rest args)
   "Resolve a promise with a final value, or another promise.
 If the promise is resolved with a promise, set the later to the forward."
@@ -326,7 +306,7 @@ If the promise is resolved with a promise, set the later to the forward."
 
 (defmethod reject-promise% :after ((promise promise) condition)
   "Deal with the errbacks, and, if this promise is the tail of the chain, reject the head."
-  (do-errbacks promise) ; do-errbacks cheks errored-p
+  (do-errbacks promise) ; do-errbacks checks errored-p
   (when (promisep (promise-chain-previous promise))
     (reject (promise-chain-previous promise) condition))) ; the previous promise may have been resolved.
 
