@@ -110,9 +110,6 @@
            #:attach-callback
            #:attach-errback
            #:attach-echoback
-           ;;#:do-callbacks
-           ;;#:do-errbacks
-           ;;#:run-promise
            #:resolve
            #:reject
            #:promisify-fn
