@@ -1,7 +1,3 @@
-;;;; 当前存在问题: promise被显示resolve后, resolve后面的逻辑还会执行.
-;;;; promise的状态被thread-pool修改之前, 也可能被promise逻辑修改, do-callbacks的:before处有一个简单补丁.
-;;;; 若某个promise的值是另一个promise, 相关转发还没测试.
-;;;; 由于与thread-pool进行了继承, promise的逻辑使用了很多非局部退出, 逻辑显得有点混乱.
 
 (in-package :cl-trivial-pool-tests)
 
@@ -849,6 +845,7 @@ with `depth' depth, and the last promise is of type `type' showed above."
         (promise3 (promise:promisify-fn #'(lambda () (/ 1 (gen-0)))))
         (promise4 (promise:promisify-fn #'(lambda () (funcall #'basic-promise-gen :simple))))
         (promise5 (promise:promisify-fn #'(lambda () (funcall #'basic-promise-gen :simple-err)))))
+    (sleep 0.1)
 
     (is eq t (promise:promisep promise1))
     (is-values (tpool:get-result promise1) (equal (list 6)) (eq t))
@@ -901,6 +898,7 @@ with `depth' depth, and the last promise is of type `type' showed above."
         (promise3 (promise:promisify-form (/ 1 (gen-0))))
         (promise4 (promise:promisify-form (funcall #'basic-promise-gen :simple)))
         (promise5 (promise:promisify-form (funcall #'basic-promise-gen :simple-err))))
+    (sleep 0.1)
 
     (is eq t (promise:promisep promise1))
     (is-values (tpool:get-result promise1) (equal (list 6)) (eq t))
