@@ -14,8 +14,8 @@
   (backlog          (make-queue))
   (max-worker-num   *default-worker-num* :type fixnum)       ; num of worker threads
   (thread-table     (make-hash) :type hash-table)         ; may have some dead threads due to gc
-  (working-num      0 :type #+sbcl(unsigned-byte 64) #-sbcl fixnum) ; use #reader to make it atomic peekable
-  (idle-num         0 :type #+sbcl(unsigned-byte 64) #-sbcl fixnum) ; num of current idle threads, total = working + idle
+  (working-num      0 #+sbcl :type #+sbcl(unsigned-byte 64)) ; use #reader to make it atomic peekable
+  (idle-num         0 #+sbcl :type #+sbcl(unsigned-byte 64)) ; num of current idle threads, total = working + idle
   (shutdown-p       nil)
   (keepalive-time   *default-keepalive-time* :type (unsigned-byte 64)))
 
