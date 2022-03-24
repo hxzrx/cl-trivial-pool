@@ -153,9 +153,9 @@ by using with-condition-handling, errors will be handled with rejecte called."
                                  (let ((*promise* work))
                                    (with-condition-handling
                                        (lambda (err)
-                                         (funcall (alexandria:curry #'reject work) err)
+                                         (reject *promise* err)
                                          (return-from exit-on-condition err))
-                                     (let ((result% (multiple-value-list (funcall fn work))))
+                                     (let ((result% (multiple-value-list (funcall fn *promise*))))
                                        (unless (promise-resolved-p *promise*) ; will not enter here if errored
                                          (apply #'resolve *promise* result%)
                                          (apply #'values result%))
@@ -183,9 +183,9 @@ This is the preferred way to make a promise."
                                                 (let ((*promise* work))
                                                   (with-condition-handling
                                                       (lambda (err)
-                                                        (funcall (alexandria:curry #'reject work) err)
+                                                        (reject *promise* err)
                                                         (return-from exit-on-condition err))
-                                                    (let ((result% (multiple-value-list (funcall fn work))))
+                                                    (let ((result% (multiple-value-list (funcall fn *promise*))))
                                                       (unless (promise-resolved-p *promise*) ; will not enter here if errored
                                                         (apply #'resolve *promise* result%)
                                                         (apply #'values result%))))))
@@ -282,7 +282,12 @@ If the promise is resolved with a promise, set the later to the forward."
                          (lambda (promise condition) (reject promise condition)))
         (add-work new-promise))
       (setf (slot-value promise 'finished-p) t))
-  (setf (slot-value promise 'resolved-p) t) ; this slot can be modified if it's forward promise is rejected.
+  ;; for very small probability, when a promise is fulfilled with another promise,
+  ;; and the later reject the former in another thread that modify resolved-p to NIL,
+  ;; the former's thread may modify resolved-p to T in the same time,
+  ;; so this when checks that.
+  (unless (slot-value promise 'rejected-p)
+    (setf (slot-value promise 'resolved-p) t)) ; this slot can be modified if it's forward promise is rejected.
   promise)
 
 (defmethod resolve-promise% :after ((promise promise) &rest args)
@@ -346,9 +351,8 @@ A promise can be rejected with anything while a condition is preferred since it 
          (*promise* work))
     (with-condition-handling
         (lambda (err)
-          (funcall (alexandria:curry #'reject work) err)
-          (reject work err)
-          (return-from exit-on-condition work))
+          (reject *promise* err)
+          (return-from exit-on-condition *promise*))
       (let ((result% (multiple-value-list (funcall fn))))
         (unless (promise-resolved-p *promise*) ; will not enter here if errored
           (apply #'resolve *promise* result%)
