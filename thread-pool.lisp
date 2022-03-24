@@ -7,17 +7,17 @@
                         (:copier nil)
                         (:predicate thread-pool-p))
   (name              (string (gensym "THREAD-POOL-")) :type string)
-  (initial-bindings  nil            :type list)
-  (lock              (bt:make-lock "THREAD-POOL-PICKING-WORK-ITEM-LOCK"))
-  (cvar              (bt:make-condition-variable :name "THREAD-POOL-PICKING-WORK-ITEM-CVAR"))
-  (lock-add-thread   (bt:make-lock "THREAD-POOL-ADD-THREAD-LOCK"))
-  (backlog           (make-queue))
-  (max-worker-num    *default-worker-num* :type fixnum)       ; num of worker threads
-  (thread-table      (make-hash)    :type hash-table)         ; may have some dead threads due to gc
-  (working-num       0              :type (unsigned-byte 64)) ; num of current busy working threads
-  (idle-num          0              :type (unsigned-byte 64)) ; num of current idle threads, total = working + idle
-  (shutdown-p        nil)
-  (keepalive-time    *default-keepalive-time* :type (unsigned-byte 64)))
+  (initial-bindings nil            :type list)
+  (lock             (bt:make-lock "THREAD-POOL-PICKING-WORK-ITEM-LOCK"))
+  (cvar             (bt:make-condition-variable :name "THREAD-POOL-PICKING-WORK-ITEM-CVAR"))
+  (lock-add-thread  (bt:make-lock "THREAD-POOL-ADD-THREAD-LOCK"))
+  (backlog          (make-queue))
+  (max-worker-num   *default-worker-num* :type fixnum)       ; num of worker threads
+  (thread-table     (make-hash) :type hash-table)         ; may have some dead threads due to gc
+  (working-num      0 :type #+sbcl(unsigned-byte 64) #-sbcl fixnum) ; use #reader to make it atomic peekable
+  (idle-num         0 :type #+sbcl(unsigned-byte 64) #-sbcl fixnum) ; num of current idle threads, total = working + idle
+  (shutdown-p       nil)
+  (keepalive-time   *default-keepalive-time* :type (unsigned-byte 64)))
 
 (defparameter *default-thread-pool* (make-thread-pool :name "Default Thread Pool"))
 
@@ -161,17 +161,16 @@ or nil if the work has not finished."
 
 (defmethod set-result :after ((work work-item) result)
   "Set the status slot with :finished"
+  (declare (ignore result))
   (set-status work :finished))
 
 (defun thread-pool-main (pool)
   (let* ((self (bt:current-thread)))
     (loop (let ((work nil))
-            (assert (<= (+ (thread-pool-working-num pool) (thread-pool-idle-num pool)) ; used for debugging
-                        (thread-pool-max-worker-num pool)))
             (with-slots (backlog max-worker-num keepalive-time lock cvar) pool
               (atomic-decf (thread-pool-working-num pool))
               (atomic-incf (thread-pool-idle-num pool))
-              (let ((start-idle-time (get-internal-run-time)))
+              (let ((start-idle-time (get-internal-real-time)))
                 (flet ((exit-while-idle ()
                          (atomic-decf (thread-pool-idle-num pool))
                          (return-from thread-pool-main)))
@@ -190,11 +189,15 @@ or nil if the work has not finished."
                                     (thread-pool-idle-num pool))
                                  max-worker-num)
                           (exit-while-idle))
-                        (let* ((end-idle-time (+ start-idle-time
-                                                 (* keepalive-time internal-time-units-per-second)))
-                               (idle-time-remaining (- end-idle-time (get-internal-run-time))))
-                          (when (minusp idle-time-remaining)
+                        (let* ((max-idle-time (* keepalive-time internal-time-units-per-second))
+                               (end-idle-time (+ start-idle-time max-idle-time))
+                               (idle-time-remaining (- end-idle-time (get-internal-real-time))))
+                          (when (and (minusp idle-time-remaining)
+                                     (> (atomic-peek (thread-pool-idle-num pool)) 1)) ; may keep one idle thread
                             (exit-while-idle))
+                          (when (and (minusp idle-time-remaining) ; make sure condition-wait' timeout >= zero
+                                     (= (atomic-peek (thread-pool-idle-num pool)) 1))
+                            (setf idle-time-remaining max-idle-time))
                           (bt:with-lock-held (lock)
                             (loop until (peek-backlog pool)
                                   do (or #+sbcl(bt:condition-wait cvar lock
