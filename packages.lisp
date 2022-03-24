@@ -18,6 +18,7 @@
            #:atomic-decf
            #:atomic-update
            #:atomic-set
+           #:atomic-peek
            #:destroy-thread-forced
            #:make-nullary
            #:make-unary

@@ -69,3 +69,16 @@
   (is = 3 (funcall (tpool-utils:wrap-bindings #'(lambda (x y) (+ x y)) nil 1 2)))
   (is = 6 (funcall (tpool-utils:wrap-bindings #'(lambda () (+ 1 2 3)) nil)))
   (is = 6 (funcall (tpool-utils:wrap-bindings #'(lambda () (+ 1 2 3))))))
+
+(defstruct struct-otf
+  (xx 12345))
+
+(define-test atomic-peek :parent utils
+  (let ((atom1 (tpool-utils:make-atomic 12345))
+        (atom2 (make-struct-otf)))
+    (is = 12345 (tpool-utils:atomic-peek (tpool-utils:atomic-place atom1)))
+    (is = 12345 (tpool-utils:atomic-peek (struct-otf-xx atom2)))
+    (tpool-utils:atomic-set (tpool-utils:atomic-place atom1) 54321)
+    (tpool-utils:atomic-set (struct-otf-xx atom2) 54321)
+    (is = 54321 (tpool-utils:atomic-peek (tpool-utils:atomic-place atom1)))
+    (is = 54321 (tpool-utils:atomic-peek (struct-otf-xx atom2)))))

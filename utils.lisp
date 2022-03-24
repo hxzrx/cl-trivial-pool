@@ -3,7 +3,7 @@
 (defvar *default-worker-num* (max 4 (cpus:get-number-of-processors)))
 
 (defparameter *default-keepalive-time* 60
-  "Default value for the idle worker thread keepalive time. Note that it's cpu time, not real time.")
+  "Default value for the idle worker thread keepalive time. Note that it's a wall time amount of seconds.")
 
 (defvar *debug-pool-on-error* nil
   "If t, will not catch errors passing through the handlers and will let them bubble up to the debugger.")
@@ -133,15 +133,19 @@
      (ccl::atomic-incf-decf ,place (- ,diff))
      old))
 
-#+ccl
 (defmacro compare-and-swap (place old-value new-value)
   "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
 Two values are considered to match if they are EQ.
 return T if swap success, otherwise return NIL."
+  #+sbcl
+  (let ((old-val-var (gensym "OLD-VALUE-")))
+    ` (let ((,old-val-var ,old-value))
+        (eq ,old-val-var (sb-ext:compare-and-swap ,place ,old-val-var ,new-value))))
+  #+ccl
   `(ccl::conditional-store ,place ,old-value ,new-value))
 
 (defmacro atomic-update (place function &rest args)
-  "Atomic swap value in `place' with `function' called and return new value."
+  "Atomically swap value in `place' with `function' called and return new value."
   #+sbcl
   `(sb-ext:atomic-update ,place ,function ,@args)
   #-sbcl
@@ -153,12 +157,24 @@ return T if swap success, otherwise return NIL."
            :finally (return ,new-value))))
 
 (defmacro atomic-set (place new-value)
-  "Atomic update the `place' with `new-value'"
+  "Atomically update the `place' with `new-value'"
   ;; (atomic-set (atomic-place (make-atomic 0)) 100)
   `(atomic-update ,place
                   #'(lambda (x)
                       (declare (ignore x))
                       ,new-value)))
+
+(defmacro atomic-peek (place)
+  "Atomically get the value of `place' without change it."
+  #+sbcl
+  `(progn
+     (sb-thread:barrier (:read))
+     ,place)
+  #-sbcl
+  (alexandria:with-gensyms (val)
+    `(loop for ,val = ,place
+           until (compare-and-swap ,place ,val ,val)
+           finally (return ,val))))
 
 ;; bordeaux-threads' condition-wait will always return T whether timeout or not,
 ;; but get-result and thread-pool-main rely on the returned value of condition-wait,
