@@ -386,6 +386,9 @@
     (format t "~&This test shoule wait for 1 second.~%")
     (is-values (tpool:get-result work2 t 1) (eql nil) (eql nil)) ; test timeout
     (format t "~&This test shoule wait for 4 second.~%")
+    (dotimes (i 4)
+      (sleep 1)
+      (format t "......~%"))
     (is-values (tpool:get-result work2 t) (equal (list 6)) (eql t))
     ;; aborted
     (tpool:add-work work3 pool)
