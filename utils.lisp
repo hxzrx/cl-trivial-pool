@@ -45,11 +45,6 @@
   #+sbcl(sb-concurrency:make-queue :name name)
   #-sbcl(cl-fast-queues:make-safe-fifo :init-length init-length :waitp nil))
 
-(defun peek-queue (queue)
-  "Return the first item to be dequeued without dequeueing it"
-  #+sbcl(cadr (sb-concurrency::queue-head queue))
-  #-sbcl(cl-fast-queues:queue-peek queue))
-
 (defun enqueue (item queue)
   #+sbcl(sb-concurrency:enqueue item queue)
   #-sbcl(cl-fast-queues:enqueue item queue))
@@ -177,6 +172,20 @@ return T if swap success, otherwise return NIL."
            until (compare-and-swap ,place ,val ,val)
            finally (return ,val))))
 
+(defun peek-queue (queue)
+  (declare (optimize speed))
+  "Return the first item to be dequeued without dequeueing it"
+  #-sbcl(cl-fast-queues:queue-peek queue)
+  #+sbcl
+  (loop (let* ((head (sb-concurrency::queue-head queue))
+               (next (cdr head)))
+          (typecase next
+            (null (return nil))
+            (cons (when (compare-and-swap (sb-concurrency::queue-head queue)
+                                          head head)
+                    (return (car next))))))))
+
+
 ;; bordeaux-threads' condition-wait will always return T whether timeout or not,
 ;; but get-result and thread-pool-main rely on the returned value of condition-wait,
 ;; and thus this is roughly fixed.
@@ -197,6 +206,7 @@ this function will try to destroy the thread anyhow."
   #+sbcl (sb-thread:terminate-thread thread)
   #+ccl (ccl:process-kill thread)
   #-(or sbcl ccl) (bt:destroy-thread thread))
+
 
 (defmacro make-nullary (() &body body)
   "Make up a nullary function which accept none args."
@@ -225,6 +235,7 @@ this function will try to destroy the thread anyhow."
   `(lambda (,@args)
      (declare (ignorable ,@args))
      ,@body))
+
 
 (defun wrap-bindings (fn &optional bindings &rest args)
   "Wrap bindings to function `fn' and return an lambda that accepts none parameters. `args' is the arguments of function `fn'"
