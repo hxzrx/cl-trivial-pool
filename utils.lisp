@@ -37,11 +37,12 @@
 
 ;;; fifo queue apis for safe accessing
 
-(defun make-queue (&optional (init-length 100) (unbound t))
+(defun make-queue (&optional (init-length 100) (unbound t) (name (string (gensym "QUEUE-"))))
   "Return an unbound"
   (declare (ignore unbound))
+  #-sbcl(declare (ignore name))
   #+sbcl(declare (ignore init-length))
-  #+sbcl(sb-concurrency:make-queue)
+  #+sbcl(sb-concurrency:make-queue :name name)
   #-sbcl(cl-fast-queues:make-safe-fifo :init-length init-length :waitp nil))
 
 (defun peek-queue (queue)

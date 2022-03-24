@@ -11,7 +11,7 @@
   (lock             (bt:make-lock "THREAD-POOL-PICKING-WORK-ITEM-LOCK"))
   (cvar             (bt:make-condition-variable :name "THREAD-POOL-PICKING-WORK-ITEM-CVAR"))
   (lock-add-thread  (bt:make-lock "THREAD-POOL-ADD-THREAD-LOCK"))
-  (backlog          (make-queue))
+  (backlog          #+sbcl(make-queue 20 t "BACKLOG-QUEUE") #-sbcl(make-queue 20 t))
   (max-worker-num   *default-worker-num* :type fixnum)       ; num of worker threads
   (thread-table     (make-hash) :type hash-table)         ; may have some dead threads due to gc
   (working-num      0 #+sbcl :type #+sbcl(unsigned-byte 64)) ; use #reader to make it atomic peekable
