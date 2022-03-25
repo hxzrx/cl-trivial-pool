@@ -353,23 +353,28 @@ Once a thread pool has been shut down, no further work
 can be added unless it's been restarted by thread-pool-restart.
 If ABORT is true then worker threads will be terminated
 via TERMINATE-THREAD."
-  (with-slots (shutdown-p backlog thread-table) pool
+  (with-slots (shutdown-p backlog thread-table working-num idle-num) pool
     (setf shutdown-p t)
     (flush-pool pool)
     (when abort
       (dolist (thread (alexandria:hash-table-values thread-table))
         (ignore-errors (bt:destroy-thread thread))))
-    (bt:condition-notify (thread-pool-cvar pool)))
-  (values))
+    (bt:condition-notify (thread-pool-cvar pool))
+    (format t "~&Wait for a second...~%")
+    (sleep 1)
+    (clrhash thread-table)
+    (setf working-num 0
+          idle-num 0))
+  t)
 
 (defun restart-pool (pool)
   "Calling shutdown-pool will not destroy the pool object, but set the slot shutdown-p t.
 This function set the slot shutdown-p nil so that the pool will be used then.
 Return t if the pool has been shutdown, and return nil if the pool was active."
-  (if (thread-pool-shutdown-p pool)
-      (progn (atomic-update (thread-pool-shutdown-p pool)
-                            #'(lambda (x)
-                                (declare (ignore x))
-                                nil))
-             t)
-      nil))
+  ;; restart seems useless
+  (shutdown-pool pool)
+  (atomic-update (thread-pool-shutdown-p pool)
+                 #'(lambda (x)
+                     (declare (ignore x))
+                     nil))
+  t)
