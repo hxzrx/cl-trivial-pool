@@ -177,10 +177,8 @@
                                                 :pool pool))))
     (with-slots ((backlog tpool::backlog)) pool
       (dolist (work work-list)
-        #+sbcl(sb-concurrency:enqueue work backlog)
-        #-sbcl(cl-fast-queues:enqueue work backlog)))
-    #+sbcl(is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; no threads
-    #-sbcl(is = 10 (cl-fast-queues:queue-count (tpool::thread-pool-backlog pool)))
+        (tpool-utils:enqueue work backlog)))
+    (is = 10 (tpool-utils:queue-count (tpool::thread-pool-backlog pool))) ; no threads
 
     (finish (tpool:add-thread pool)) ; add a thread
     ;; run, but will only deal with the works whose status is :ready
@@ -209,10 +207,9 @@
 
     (with-slots ((backlog tpool::backlog)) pool ; add to backlog without notify
       (dolist (work work-list)
-        #+sbcl(sb-concurrency:enqueue work backlog)
-        #-sbcl(cl-fast-queues:enqueue work backlog)))
-    #+:sbcl(is = 10 (sb-concurrency:queue-count (tpool::thread-pool-backlog pool))) ; as the thread waiting for cvar
-    #-:sbcl(is = 10 (cl-fast-queues:queue-count (tpool::thread-pool-backlog pool)))
+        (tpool-utils:enqueue work backlog)))
+    (format t "pool: ~d~%" pool)
+    (is = 10 (tpool-utils:queue-count (tpool::thread-pool-backlog pool))) ; as the thread waiting for cvar
 
     (bt:condition-notify (tpool::thread-pool-cvar pool)) ; notify cvar
     (sleep 0.0001) ; all done
@@ -314,13 +311,14 @@
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
                                      :pool pool)))
-    (is eq nil (tpool:restart-pool pool))
+    (is eq t (tpool:restart-pool pool))
     (finish (tpool:shutdown-pool pool))
     (fail (tpool:add-work work pool))
     (is eq t (tpool:restart-pool pool))
     (tpool:add-thread pool)
     (finish (tpool:shutdown-pool pool))
     (is eq t (tpool:restart-pool pool))
+    (format t "pool after restart: ~d~%" pool)
     (finish (tpool:add-work work pool))
     (sleep 0.00001)
     (is equal (list 6) (tpool:get-result work))))
