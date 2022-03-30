@@ -1,5 +1,10 @@
 (in-package :cl-trivial-pool)
 
+(defparameter *default-wait-time* 0.005
+  "The time when waiting for condition variable to get rid of lost wakeups.
+If the work-item is sent through a scheduler,
+This wait-time should not be greater then the resolutin of the scheduler.")
+
 (defstruct (thread-pool (:constructor make-thread-pool (&key (name (string (gensym "THREAD-POOL-")))
                                                           (max-worker-num *default-worker-num*)
                                                           (keepalive-time *default-keepalive-time*)
@@ -141,8 +146,8 @@ or nil if the work has not finished."
                  ;; repeatly wait with small timeout to deal with the lost wakeups
                  (loop while (or (eq (get-status work) :ready)
                                  (eq (get-status work) :running))
-                       do (and #+sbcl(bt:condition-wait cvar lock :timeout 0.0001)
-                               #+ccl(tpool-utils::condition-wait cvar lock :timeout timeout)
+                       do (and #+sbcl(bt:condition-wait cvar lock :timeout *default-wait-time*)
+                               #+ccl(tpool-utils::condition-wait cvar lock :timeout *default-wait-time*)
                                (null (or (eq (get-status work) :ready)
                                          (eq (get-status work) :running)))
                               (return)))))
@@ -198,18 +203,20 @@ or nil if the work has not finished."
                           (exit-while-idle))
                         (let* ((max-idle-time (* keepalive-time internal-time-units-per-second))
                                (end-idle-time (+ start-idle-time max-idle-time))
-                               (idle-time-remaining (- end-idle-time (get-internal-real-time))))
+                               (idle-time-remaining (- end-idle-time (get-internal-real-time)))
+                               (wait-num (truncate (/ idle-time-remaining
+                                                      *default-wait-time*
+                                                      internal-time-units-per-second))))
                           (when (minusp idle-time-remaining) ; make sure condition-wait' timeout >= zero
                             (exit-while-idle))
                           (bt:with-lock-held (lock)
                             (loop until (peek-backlog pool)
-                                  do (or #+sbcl(bt:condition-wait cvar lock
-                                                                  :timeout (/ idle-time-remaining
-                                                                              internal-time-units-per-second))
-                                         #+ccl(tpool-utils::condition-wait cvar lock
-                                                                           :timeout (/ idle-time-remaining
-                                                                                       internal-time-units-per-second))
-                                         (return)))))))))
+                                  do (progn
+                                       (decf wait-num)
+                                       (or #+sbcl(bt:condition-wait cvar lock :timeout *default-wait-time*)
+                                           #+ccl(tpool-utils::condition-wait cvar lock :timeout *default-wait-time*)
+                                           (> wait-num 0)
+                                           (return))))))))))
             (unwind-protect-unwind-only
                 (catch 'terminate-work
                   (let ((last-err nil))
