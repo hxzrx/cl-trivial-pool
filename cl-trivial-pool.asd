@@ -6,7 +6,8 @@
   :depends-on (:cl-cpus
                :bordeaux-threads
                :alexandria
-               :cl-fast-queues)
+               :cl-fast-queues
+               :log4cl)
   :serial t
   :in-order-to ((test-op (test-op "cl-trivial-pool/tests")))
   :components ((:file "packages")
