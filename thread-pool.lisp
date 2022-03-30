@@ -234,11 +234,11 @@ or nil if the work has not finished."
                             (bt:condition-notify (work-item-cvar work)))
                         (default-restart ()
                           :report (lambda (s) (format s "~&An error <~s> occured when executing work!~%" last-err))
-                          (format *debug-io* "~&Error: <~s>, work: ~d~%" last-err work))))))
+                          (log:debug "Error: <~s>, work: ~d" last-err work))))))
               (atomic-decf (thread-pool-working-num pool))
               (setf (atomic-place (work-item-status work)) :aborted)
               (bt:condition-notify (work-item-cvar work))
-              (log:debug  "Thread destroyed due to error: ~d~%" self)
+              (log:debug "Thread destroyed due to error: ~d" self)
               (destroy-thread-forced self))))))
 
 (defun add-thread (pool)
@@ -357,7 +357,7 @@ via TERMINATE-THREAD."
       (dolist (thread (alexandria:hash-table-values thread-table))
         (ignore-errors (bt:destroy-thread thread))))
     (bt:condition-notify (thread-pool-cvar pool))
-    (format t "~&Wait for a second...~%")
+    (log:info "Shutting down the pool, wait for a second....")
     (sleep 1)
     (clrhash thread-table)
     (setf working-num 0
