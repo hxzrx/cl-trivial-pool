@@ -76,7 +76,6 @@
 
 (defun make-work-item (&key function
                          (pool *default-thread-pool*)
-                         (status :created)
                          (name (string (gensym "WORK-ITEM-")))
                          bindings desc)
   (make-instance 'work-item
@@ -87,12 +86,11 @@
                                         (funcall function))))
                          function)
                  :pool pool
-                 :status (make-atomic status)
+                 :status (make-atomic :created)
                  :name name
                  :desc desc))
 
 (defmacro with-work-item ((&key (pool *default-thread-pool*)
-                             (status :created)
                              (name (string (gensym "WORK-ITEM-")))
                              bindings desc) &body body)
   "Return an work-item object whose fn slot is made up with `body'"
@@ -102,7 +100,7 @@
   (let ((binds (gensym))
         (bindings% bindings))
     `(let* ((work (make-instance 'work-item :pool ,pool
-                                            :status (make-atomic ,status)
+                                            :status (make-atomic :created)
                                             :name ,name
                                             :desc ,desc))
             (,binds ,bindings%)
@@ -133,12 +131,21 @@ or nil if the work has not finished."
     ((:ready :running)
      (if waitp
          (with-slots (lock cvar) work
-           (bt:with-lock-held (lock) work
-             (loop while (or (eq (get-status work) :ready)
-                             (eq (get-status work) :running))
-                   do (or #+sbcl(bt:condition-wait cvar lock :timeout timeout)
-                          #+ccl(tpool-utils::condition-wait cvar lock :timeout timeout)
-                          (return))))
+           (bt:with-lock-held (lock)
+             (if timeout
+                 (loop while (or (eq (get-status work) :ready)
+                                 (eq (get-status work) :running))
+                       do (or #+sbcl(bt:condition-wait cvar lock :timeout timeout)
+                              #+ccl(tpool-utils::condition-wait cvar lock :timeout timeout)
+                              (return)))
+                 ;; repeatly wait with small timeout to deal with the lost wakeups
+                 (loop while (or (eq (get-status work) :ready)
+                                 (eq (get-status work) :running))
+                       do (and #+sbcl(bt:condition-wait cvar lock :timeout 0.0001)
+                               #+ccl(tpool-utils::condition-wait cvar lock :timeout timeout)
+                               (null (or (eq (get-status work) :ready)
+                                         (eq (get-status work) :running)))
+                              (return)))))
            (with-slots (status result) work
              (if (eq (atomic-place status) :finished)
                  (values result t)
@@ -192,12 +199,8 @@ or nil if the work has not finished."
                         (let* ((max-idle-time (* keepalive-time internal-time-units-per-second))
                                (end-idle-time (+ start-idle-time max-idle-time))
                                (idle-time-remaining (- end-idle-time (get-internal-real-time))))
-                          (when (and (minusp idle-time-remaining)
-                                     (> (atomic-peek (thread-pool-idle-num pool)) 1)) ; may keep one idle thread
+                          (when (minusp idle-time-remaining) ; make sure condition-wait' timeout >= zero
                             (exit-while-idle))
-                          (when (and (minusp idle-time-remaining) ; make sure condition-wait' timeout >= zero
-                                     (= (atomic-peek (thread-pool-idle-num pool)) 1))
-                            (setf idle-time-remaining max-idle-time))
                           (bt:with-lock-held (lock)
                             (loop until (peek-backlog pool)
                                   do (or #+sbcl(bt:condition-wait cvar lock
@@ -228,6 +231,7 @@ or nil if the work has not finished."
               (atomic-decf (thread-pool-working-num pool))
               (setf (atomic-place (work-item-status work)) :aborted)
               (bt:condition-notify (work-item-cvar work))
+              (log:debug  "Thread destroyed due to error: ~d~%" self)
               (destroy-thread-forced self))))))
 
 (defun add-thread (pool)
@@ -239,55 +243,6 @@ or nil if the work has not finished."
             (bt:make-thread (lambda () (thread-pool-main pool))
                             :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
                             :initial-bindings (thread-pool-initial-bindings pool))))))
-
-(defun add-task (function pool &key (name "") priority bindings desc)
-  "Add a work item to the thread-pool.
-Functions are called concurrently and in FIFO order.
-A work item is returned, which can be passed to CANCEL-WORK
-to attempt cancel the work.
-BINDINGS is a list which specify special bindings
-that should be active when FUNCTION is called. These override the
-thread pool's initial-bindings."
-  (declare (ignore priority)) ; TODO
-  (check-type function function)
-  (let ((work (make-work-item
-               :function (if bindings
-                             (let ((vars (mapcar #'first bindings))
-                                   (vals (mapcar #'second bindings)))
-                               (lambda () (progv vars vals
-                                            (funcall function))))
-                             function)
-               :pool pool
-               :status :ready
-               :name name
-               :desc desc)))
-    (with-slots (backlog max-worker-num working-num idle-num lock-add-thread) pool
-      (when (thread-pool-shutdown-p pool)
-        (error "Attempted to add work item to a shut down thread pool ~S" pool))
-      (enqueue work backlog)
-      (bt:with-lock-held (lock-add-thread)
-        (when (and (<= (thread-pool-idle-num pool) 0)
-                   (< (+ working-num idle-num) max-worker-num))
-          (setf (gethash (gensym) (thread-pool-thread-table pool))
-                (bt:make-thread (lambda () (thread-pool-main pool))
-                                :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
-                                :initial-bindings (thread-pool-initial-bindings pool)))
-          (atomic-incf (thread-pool-working-num pool))))
-      (bt:condition-notify (thread-pool-cvar pool)))
-    work))
-
-(defun add-tasks (function values pool &key name priority bindings)
-  "Add many work items to the pool.
-A work item is created for each element of VALUES and FUNCTION is called
-in the pool with that element.
-Returns a list of the work items added."
-  (loop for value in values
-        collect (add-task (let ((value value))
-                            (lambda () (funcall function value)))
-                          pool
-                          :name name
-                          :priority priority
-                          :bindings bindings)))
 
 (defmethod add-work ((work work-item) &optional (pool *default-thread-pool*) priority)
   "Enqueue a work-item to a thread-pool."
@@ -301,6 +256,8 @@ Returns a list of the work items added."
     (unless (eq :created (get-status work))
       (warn "Attempted to add a '~s' work item to a thread pool ~d." (get-status work) work))
     (setf (atomic-place (work-item-status work)) :ready)
+    ;; should be in order enqueue -> add-thread -> notify,
+    ;; or if in order add-thread -> enqueue -> notify, the thread may fail to pick this work
     (enqueue work backlog)
     (bt:with-lock-held (lock-add-thread)
       (when (and (= (thread-pool-idle-num pool) 0)
@@ -326,6 +283,41 @@ false if the item had finished or is currently running on a worker thread."
                  #'(lambda (x)
                      (declare (ignore x))
                      :cancelled)))
+
+(defun add-task (function pool &key (name "") priority bindings desc)
+  "Add a work item to the thread-pool.
+Functions are called concurrently and in FIFO order.
+A work item is returned, which can be passed to CANCEL-WORK
+to attempt cancel the work.
+BINDINGS is a list which specify special bindings
+that should be active when FUNCTION is called. These override the
+thread pool's initial-bindings."
+  (declare (ignore priority)) ; TODO
+  (check-type function function)
+  (let ((work (make-work-item
+               :function (if bindings
+                             (let ((vars (mapcar #'first bindings))
+                                   (vals (mapcar #'second bindings)))
+                               (lambda () (progv vars vals
+                                            (funcall function))))
+                             function)
+               :pool pool
+               :name name
+               :desc desc)))
+    (add-work work)))
+
+(defun add-tasks (function values pool &key name priority bindings)
+  "Add many work items to the pool.
+A work item is created for each element of VALUES and FUNCTION is called
+in the pool with that element.
+Returns a list of the work items added."
+  (loop for value in values
+        collect (add-task (let ((value value))
+                            (lambda () (funcall function value)))
+                          pool
+                          :name name
+                          :priority priority
+                          :bindings bindings)))
 
 (defun flush-pool (pool)
   "Cancel all outstanding work on THREAD-POOL.
@@ -365,6 +357,7 @@ via TERMINATE-THREAD."
           idle-num 0))
   t)
 
+#|
 (defun restart-pool (pool)
   "Calling shutdown-pool will not destroy the pool object, but set the slot shutdown-p t.
 This function set the slot shutdown-p nil so that the pool will be used then.
@@ -376,3 +369,4 @@ Return t if the pool has been shutdown, and return nil if the pool was active."
                      (declare (ignore x))
                      nil))
   t)
+|#
