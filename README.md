@@ -3,7 +3,7 @@ A common lisp thread pool implemented with atomic operations instead of locks in
 ### thread-pool
 Struct, the definition of the thread pool.
 
-####Slots
+#### Slots
 name: the name of the thread pool, string type. It will be set to a random unique name if it's not provided.
 
 initial-bindings:  the environment of this pool which is an alist such as `(list (var1 val1) (va2 val2))`. This parameter, combined with the bindings of a function, will make a closure of that function and encapsulated to a `work-item` and then sent to a thread pool. The default value of this parameter is NIL.
