@@ -129,16 +129,32 @@
      (ccl::atomic-incf-decf ,place (- ,diff))
      old))
 
-(defmacro compare-and-swap (place old-value new-value)
-  "Atomically stores NEW in `place' if `old-value' matches the current value of `place'.
+(defmacro compare-and-swap (place old new)
+  "Atomically stores NEW in `place' if `old' value matches the current value of `place'.
 Two values are considered to match if they are EQ.
 return T if swap success, otherwise return NIL."
+  ;; https://github.com/Shinmera/atomics/blob/master/atomics.lisp
   #+sbcl
-  (let ((old-val-var (gensym "OLD-VALUE-")))
-    ` (let ((,old-val-var ,old-value))
-        (eq ,old-val-var (sb-ext:compare-and-swap ,place ,old-val-var ,new-value))))
+  (let ((tmp (gensym "OLD")))
+    `(let ((,tmp ,old)) (eq ,tmp (sb-ext:cas ,place ,tmp ,new))))
   #+ccl
-  `(ccl::conditional-store ,place ,old-value ,new-value))
+  `(ccl::conditional-store ,place ,old ,new)
+  #+clasp
+  (let ((tmp (gensym "OLD")))
+    `(let ((,tmp ,old)) (eq ,tmp (mp:cas ,place ,tmp ,new))))
+  #+ecl
+  (let ((tmp (gensym "OLD")))
+    `(let ((,tmp ,old)) (eq ,tmp (mp:compare-and-swap ,place ,tmp ,new))))
+  #+allegro
+  `(if (excl:atomic-conditional-setf ,place ,new ,old) T NIL)
+  #+lispworks
+  `(system:compare-and-swap ,place ,old ,new)
+  #+mezzano
+  (let ((tmp (gensym "OLD")))
+    `(let ((,tmp ,old))
+       (eq ,tmp (mezzano.extensions:compare-and-swap ,place ,tmp ,new))))
+  #-(or allegro ccl clasp ecl lispworks mezzano sbcl)
+  (no-support 'CAS))
 
 (defmacro atomic-update (place function &rest args)
   "Atomically swap value in `place' with `function' called and return new value."
