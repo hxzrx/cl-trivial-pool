@@ -188,12 +188,9 @@
     (is equal (make-list 10 :initial-element :created)
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))
     (false (tpool:peek-backlog pool))
-
     (dolist (work work-list) ; reset the status to ":ready" and add work
-      #+sbcl(setf (car (tpool::work-item-status work)) :ready)
-      #-sbcl(setf (svref (tpool::work-item-status work) 0) :ready)
+      (tpool:set-status work :ready)
       (tpool:add-work work pool))
-
     (sleep 0.0001) ; all done
     (is equal (make-list 10 :initial-element 6)
         (mapcar #'(lambda (work) (car (tpool:get-result work))) work-list))
@@ -201,18 +198,20 @@
         (mapcar #'(lambda (work) (tpool:get-status work)) work-list))
 
     (dolist (work work-list) ; reset work-list
-      #+sbcl(setf (car (tpool::work-item-status work)) :ready)
-      #-sbcl(setf (svref (tpool::work-item-status work) 0) :ready)
+      (tpool:set-status work :ready)
       (setf (tpool::work-item-result work) nil))
 
     (with-slots ((backlog tpool::backlog)) pool ; add to backlog without notify
       (dolist (work work-list)
         (tpool-utils:enqueue work backlog)))
-    (format t "pool: ~d~%" pool)
     (is = 10 (tpool-utils:queue-count (tpool::thread-pool-backlog pool))) ; as the thread waiting for cvar
 
+    (bt:condition-notify (tpool::thread-pool-cvar tpool:*default-thread-pool*)) ; 可能是老bug的源头
     (bt:condition-notify (tpool::thread-pool-cvar pool)) ; notify cvar
-    (sleep 0.0001) ; all done
+    (sleep 0.001) ; all done
+    (dolist (work work-list)
+      (is = 6 (car (tpool:get-result work)))
+      (is eq :finished (tpool:get-status work)))
     (is equal (make-list 10 :initial-element 6)
         (mapcar #'(lambda (work) (car (tpool:get-result work))) work-list))
     (is equal (make-list 10 :initial-element :finished)
@@ -307,6 +306,7 @@
       (is eql nil (tpool:get-result work nil))
       (is eql :cancelled (tpool:get-status work)))))
 
+#|
 (define-test shutdown/restart-pool :parent pool
   (let* ((pool (tpool:make-thread-pool))
          (work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)
@@ -322,6 +322,7 @@
     (finish (tpool:add-work work pool))
     (sleep 0.00001)
     (is equal (list 6) (tpool:get-result work))))
+|#
 
 (define-test add-thread :parent pool
   (let* ((pool (tpool:make-thread-pool)))
@@ -399,28 +400,37 @@
 
 (define-test with-work-item :parent pool
   ;; Will be warned and it's OK.
-  (let* ((work1 (tpool:with-work-item (:pool tpool:*default-thread-pool*) ; bindings nil
+  (let* ((tpool (tpool:make-thread-pool))
+         (work1 (tpool:with-work-item (:pool tpool:*default-thread-pool*) ; bindings nil
                   (+ 1 2 3)))
          (work2 (tpool:with-work-item (:pool tpool:*default-thread-pool* ; bindings non-nil
                                        :bindings '((a 1) (b 2) (c 3)))
                   (+ a b c)))
-         (tpool (tpool:make-thread-pool))
          (work3 (tpool:with-work-item (:pool tpool
                                        :bindings '((*some-bind* 3)))
                   (+ 3 *some-bind*))))
-
     (true (tpool:work-item-p work1))
     (true (tpool:work-item-p work2))
     (true (tpool:work-item-p work3))
     (is = 6 (funcall (slot-value work1 'tpool::fn)))
     (is = 6 (funcall (slot-value work2 'tpool::fn)))
     (is = 6 (funcall (slot-value work3 'tpool::fn)))
-    (tpool:add-work work1)
-    (tpool:add-work work2)
-    (tpool:add-work work3)
+    (finish (tpool:add-work work1))
+    (finish (tpool:add-work work2))
+    (finish (tpool:add-work work3))
+    (sleep 0.001)
+    (format t "work1: ~d~%" work1)
+    (format t "work2: ~d~%" work2)
+    (format t "work3: ~d~%" work3)
+    (format t "with-work-item default pool: ~d~%" tpool:*default-thread-pool*)
+    (format t "with-work-item pool: ~d~%" tpool)
     (is = 6 (car (tpool:get-result work1)))
     (is = 6 (car (tpool:get-result work2)))
-    (is = 6 (car (tpool:get-result work3)))))
+    (format t "with-work-item default pool: ~d~%" tpool:*default-thread-pool*)
+    (format t "with-work-item pool: ~d~%" tpool)
+    (is = 6 (car (tpool:get-result work3)))
+    (format t "with-work-item default pool: ~d~%" tpool:*default-thread-pool*)
+    (format t "with-work-item pool: ~d~%" tpool)))
 
 (define-test get/set-status :parent pool
   (let ((work (tpool:make-work-item :function (make-parameterless-fun + 1 2 3)))
@@ -446,7 +456,10 @@
                                                       x))
                                       :pool pool)))
     (is eq :created (tpool:get-status work0))
+    (format t "pool: ~d~%" pool)
     (finish (tpool:add-work work0))
     (sleep 0.0001)
+    (format t "pool: ~d~%" pool)
+    (format t "work: ~d~%" work0)
     (is-values (tpool:get-result work0) (eq nil) (eq nil))
     (is eq :aborted (tpool:get-status work0))))

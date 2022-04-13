@@ -1,5 +1,6 @@
 (in-package :cl-trivial-pool-tests)
 
+(log:config :debug)
 
 (define-test peek-queue :parent utils
   (let ((queue (tpool-utils:make-queue)))
