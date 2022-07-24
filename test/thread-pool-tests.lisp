@@ -407,7 +407,7 @@
                                        :bindings '((a 1) (b 2) (c 3)))
                   (+ a b c)))
          (work3 (tpool:with-work-item (:pool tpool
-                                       :bindings '((*some-bind* 3)))
+                                       :bindings (list (list '*some-bind* 3)))
                   (+ 3 *some-bind*))))
     (true (tpool:work-item-p work1))
     (true (tpool:work-item-p work2))
