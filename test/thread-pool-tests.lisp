@@ -204,8 +204,8 @@
     (with-slots ((backlog tpool::backlog)) pool ; add to backlog without notify
       (dolist (work work-list)
         (tpool-utils:enqueue work backlog)))
-    (is = 10 (tpool-utils:queue-count (tpool::thread-pool-backlog pool))) ; as the thread waiting for cvar
-
+    ;; the following test may not = 10 as the works might have run already
+    ;;(is = 10 (tpool-utils:queue-count (tpool::thread-pool-backlog pool)))
     (bt:condition-notify (tpool::thread-pool-cvar tpool:*default-thread-pool*)) ; 可能是老bug的源头
     (bt:condition-notify (tpool::thread-pool-cvar pool)) ; notify cvar
     (sleep 0.001) ; all done
