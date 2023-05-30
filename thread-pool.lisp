@@ -18,7 +18,7 @@ This wait-time should not be greater then the resolutin of the scheduler.")
   (lock-add-thread  (bt:make-lock "THREAD-POOL-ADD-THREAD-LOCK"))
   (backlog          #+sbcl(make-queue 20 t "BACKLOG-QUEUE") #-sbcl(make-queue 20 t))
   (max-worker-num   *default-worker-num* :type fixnum)       ; num of worker threads
-  (thread-table     (make-hash) :type hash-table)         ; may have some dead threads due to gc
+  (thread-table     (make-hash) :type hash-table)            ; may have some dead threads due to gc
   (working-num      0 #+sbcl :type #+sbcl(unsigned-byte 64)) ; use #reader to make it atomic peekable
   (idle-num         0 #+sbcl :type #+sbcl(unsigned-byte 64)) ; num of current idle threads, total = working + idle
   (shutdown-p       nil)
@@ -46,6 +46,7 @@ This wait-time should not be greater then the resolutin of the scheduler.")
 
 (defun peek-backlog (pool)
   "Return the top pending work-item of the pool. Return NIL if no pending works in the queue."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (peek-queue (thread-pool-backlog pool)))
 
 (defclass work-item ()
@@ -77,12 +78,15 @@ This wait-time should not be greater then the resolutin of the scheduler.")
 
 (defun work-item-p (work)
   "Return T if `work' is an instance of work-item or else return NIL."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (subtypep (type-of work) 'work-item))
 
 (defun make-work-item (&key function
                          (pool *default-thread-pool*)
                          (name (string (gensym "WORK-ITEM-")))
                          bindings desc)
+  (declare (function function))
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (make-instance 'work-item
                  :fn (if bindings
                          (let ((vars (mapcar #'first bindings))
@@ -120,10 +124,12 @@ This wait-time should not be greater then the resolutin of the scheduler.")
 
 (defmethod get-status ((work work-item))
   "Return the status of an work-item instance."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (atomic-place (work-item-status work)))
 
 (defmethod set-status ((work work-item) new-status)
   "Set the status slot of work to a new value"
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (atomic-set (atomic-place (work-item-status work)) new-status))
 
 (defmethod get-result ((work work-item) &optional (waitp t) (timeout nil))
@@ -131,6 +137,7 @@ This wait-time should not be greater then the resolutin of the scheduler.")
 The second value denotes if the work has finished.
 The first value is the function's returned value list of this work,
 or nil if the work has not finished."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (case (get-status work) ; :created :ready :running :aborted :finished :cancelled :rejected
     (:finished (values (work-item-result work) t))
     ((:ready :running)
@@ -166,6 +173,7 @@ or nil if the work has not finished."
 
 (defmethod set-result ((work work-item) result)
   "Set the result of `work' directly and return the work instance itself."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (if (listp result)
       (setf (work-item-result work) result)
       (setf (work-item-result work) (list result)))
@@ -173,6 +181,7 @@ or nil if the work has not finished."
 
 (defmethod set-result :after ((work work-item) result)
   "Set the status slot with :finished"
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (declare (ignore result))
   (set-status work :finished))
 
@@ -243,6 +252,8 @@ or nil if the work has not finished."
 
 (defun add-thread (pool)
   "Add a thread to a thread pool regardless of how many threads there are."
+  ;;(declare (thread-pool pool))
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (when (> (thread-pool-max-worker-num pool)
            (+ (thread-pool-working-num pool) (thread-pool-idle-num pool)))
     (prog1 (atomic-incf (thread-pool-working-num pool))
@@ -251,6 +262,7 @@ or nil if the work has not finished."
                             :name (concatenate 'string "WORKER-OF-" (thread-pool-name pool))
                             :initial-bindings (thread-pool-initial-bindings pool))))))
 
+(declaim (inline add-work))
 (defmethod add-work ((work work-item) &optional (pool *default-thread-pool*) priority)
   "Enqueue a work-item to a thread-pool."
   (declare (ignore priority))

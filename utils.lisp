@@ -1,6 +1,6 @@
 (in-package :tpool-utils)
 
-(defvar *default-worker-num* (max 4 (cpus:get-number-of-processors)))
+(defparameter *default-worker-num* (max 4 (cpus:get-number-of-processors)))
 
 (defparameter *default-keepalive-time* 60
   "Default value for the idle worker thread keepalive time. Note that it's a wall time amount of seconds.")
@@ -45,28 +45,37 @@
   #+sbcl(sb-concurrency:make-queue :name name)
   #-sbcl(cl-fast-queues:make-safe-fifo :init-length init-length))
 
+(declaim (inline enqueue))
 (defun enqueue (item queue)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl(sb-concurrency:enqueue item queue)
   #-sbcl(cl-fast-queues:enqueue item queue))
 
+(declaim (inline dequeue))
 (defun dequeue (queue)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl(sb-concurrency:dequeue queue)
   #-sbcl(alexandria:when-let (val (cl-fast-queues:dequeue queue))
           (if (eq val cl-fast-queues:*underflow-flag*)
               nil
               val)))
 
+(declaim (inline queue-count))
 (defun queue-count (queue)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl(sb-concurrency:queue-count queue)
   #-sbcl(cl-fast-queues:queue-count queue))
 
+(declaim (inline queue-to-list))
 (defun queue-to-list (queue)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl(sb-concurrency:list-queue-contents queue)
   #-sbcl(cl-fast-queues:queue-to-list queue))
 
+(declaim (inline flush-queue))
 (defun flush-queue (queue)
   "Flush the queue to an empty queue. The returned value should be neglected."
-  (declare (optimize speed))
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl
   (loop (let* ((head (sb-concurrency::queue-head queue))
                (tail (sb-concurrency::queue-tail queue))
@@ -82,7 +91,9 @@
                     (return t))))))
   #-sbcl(cl-fast-queues:queue-flush queue))
 
+(declaim (inline queue-empty-p))
 (defun queue-empty-p (queue)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl(sb-concurrency:queue-empty-p queue)
   #-sbcl(cl-fast-queues:queue-empty-p queue))
 
@@ -97,8 +108,10 @@
 
 ;;; atomic operations
 
+(declaim (inline make-atomic))
 (defun make-atomic (init-value)
   "Return a structure that can be cas'ed"
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+ccl
   (make-array 1 :initial-element init-value)
   #-ccl
@@ -188,8 +201,9 @@ return T if swap success, otherwise return NIL."
            until (compare-and-swap ,place ,val ,val)
            finally (return ,val))))
 
+(declaim (inline peek-queue))
 (defun peek-queue (queue)
-  (declare (optimize speed))
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   "Return the first item to be dequeued without dequeueing it"
   #-sbcl(cl-fast-queues:queue-peek queue)
   #+sbcl
@@ -216,9 +230,11 @@ return T if swap success, otherwise return NIL."
       (bt:acquire-lock lock t))
     success))
 
+(declaim (inline destroy-thread-forced))
 (defun destroy-thread-forced (thread)
   "bt:destroy-thread will signal error if `thread' is the current thread.
 this function will try to destroy the thread anyhow."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   #+sbcl (sb-thread:terminate-thread thread)
   #+ccl (ccl:process-kill thread)
   #-(or sbcl ccl) (bt:destroy-thread thread))
@@ -252,7 +268,7 @@ this function will try to destroy the thread anyhow."
      (declare (ignorable ,@args))
      ,@body))
 
-
+(declaim (inline wrap-bindings))
 (defun wrap-bindings (fn &optional bindings &rest args)
   "Wrap bindings to function `fn' and return an lambda that accepts none parameters. `args' is the arguments of function `fn'"
   ;; (funcall (wrap-bindings #'(lambda () (+ a b)) '((a 1) (b 2))))
@@ -261,6 +277,8 @@ this function will try to destroy the thread anyhow."
   ;; (funcall (wrap-bindings #'(lambda (x y) (+ x y)) nil 1 2))
   ;; (funcall (wrap-bindings #'(lambda () (+ 1 2 3)) nil))
   ;; (funcall (wrap-bindings #'(lambda () (+ 1 2 3))))
+  (declare (function fn))
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
   (if bindings
       (let ((vars (mapcar #'first bindings))
             (vals (mapcar #'second bindings)))
