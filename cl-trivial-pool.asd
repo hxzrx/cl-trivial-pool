@@ -3,7 +3,8 @@
   :description "A common lisp thread pool implemented with atomic operations instead of locks in the worker threads' infinite loop."
   :author "He Xiang-zhi <xz.he@qq.com>"
   :license "MIT"
-  :depends-on (:cl-cpus
+  :depends-on (#+sbcl :sb-concurrency
+               :cl-cpus
                :bordeaux-threads
                :alexandria
                :cl-fast-queues
